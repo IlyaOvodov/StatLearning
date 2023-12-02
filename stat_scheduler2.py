@@ -66,14 +66,18 @@ class StatLRSceduler:
         self.prev_loss = loss
         self.prev_loss_sum = loss.sum().item()
 
-    def _log(self, n, s, s2, decision, p_value, d0, d1, s0, s1):
-        if not self.log_file:
+    def _log(self, n, s, s2, decision = None, p_value=None, d0=None, d1=None, s0=None, s1=None):
+        if not self.log_file or not self.deltas:
             return
         with Path(self.log_file).open('a') as f:
             last_rec = self.deltas[-1]
+            if s0 is not None:
+                s0  =math.sqrt(s0)
+            if s1 is not None:
+                s1  =math.sqrt(s1)
             f.write(f'{self.step_no}\t{last_rec.is_hi}\t{last_rec.is_hi_is_random}\t{last_rec.d_sum}\t{last_rec.d_sqr_sum}\t{last_rec.n}\t' +
                     f'{self.evaluation_start_index}\t{n[0]}\t{n[1]}\t{s[0]}\t{s[1]}\t{s2[0]}\t{s2[1]}\t' +
-                    f'{decision}\t{p_value}\t{d0}\t{d1}\t{math.sqrt(s0)}\t{math.sqrt(s1)}\n')
+                    f'{decision}\t{p_value}\t{d0}\t{d1}\t{s0}\t{s1}\n')
 
     def _evaluate_lr_change(self, detailed=None, update=True):
         if detailed is None:
@@ -112,6 +116,10 @@ class StatLRSceduler:
                 self.evaluation_start_index = len(self.deltas) + 2
                 
                 print(f'Updates LR -> {self.base_lrs}')
+        else:
+            self._log(n, s, s2)
+                
+
         
     def _eval_jitter(self, n, s, s2):
         d0, d1 = (s[i]/n[i] for i in (0,1))
