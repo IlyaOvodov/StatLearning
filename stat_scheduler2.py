@@ -1,6 +1,7 @@
 from collections import namedtuple
 from copy import copy
 import math
+from pathlib import Path
 import random
 from scipy import stats
 import torch
@@ -10,11 +11,13 @@ LossRec = namedtuple('LossRec', ['step', 'is_hi', 'is_hi_is_random', 'd_sum', 'd
 class StatLRSceduler:
 
     def __init__(self, optimizer, last_epoch=-1, verbose=False,
-                 jitter=1, jitter_pvalue_thr=0.05, step_lr_scale=0.1, use_detailed_stat=False):
+                 jitter=1, jitter_pvalue_thr=0.05, step_lr_scale=0.1, use_detailed_stat=False,
+                 log_file=None):
         self.jitter = jitter
         self.jitter_pvalue_thr = jitter_pvalue_thr
         self.step_lr_scale = step_lr_scale
         self.use_detailed_stat = use_detailed_stat
+        self.log_file = log_file
         self.deltas = []  # list of LossRec by iterations 
         """
         train loop looks like:
@@ -33,6 +36,11 @@ class StatLRSceduler:
         self.base_lrs = []
         for i, pg in enumerate(self.optimizer.param_groups):
             self.base_lrs.append(pg['lr']) 
+        if self.log_file:
+            with Path(self.log_file).open('w') as f:
+                f.write('self.step_no\tlast_rec.is_hi\tlast_rec.is_hi_is_random\tlast_rec.d_sum\tlast_rec.d_sqr_sum\tlast_rec.n\t' +
+                    'self.evaluation_start_index\tn[0]\tn[1]\ts[0]\ts[1]\ts2[0]\ts2[1]\t'+
+                    'decision\tp_value\td0\td1\tmath.sqrt(s0)\tmath.sqrt(s1)\n')                
 
     def get_lr(self):
         k = 1 + self.jitter
@@ -57,6 +65,15 @@ class StatLRSceduler:
                                         n=len(delta)))
         self.prev_loss = loss
         self.prev_loss_sum = loss.sum().item()
+
+    def _log(self, n, s, s2, decision, p_value, d0, d1, s0, s1):
+        if not self.log_file:
+            return
+        with Path(self.log_file).open('a') as f:
+            last_rec = self.deltas[-1]
+            f.write(f'{self.step_no}\t{last_rec.is_hi}\t{last_rec.is_hi_is_random}\t{last_rec.d_sum}\t{last_rec.d_sqr_sum}\t{last_rec.n}\t' +
+                    f'{self.evaluation_start_index}\t{n[0]}\t{n[1]}\t{s[0]}\t{s[1]}\t{s2[0]}\t{s2[1]}\t' +
+                    f'{decision}\t{p_value}\t{d0}\t{d1}\t{math.sqrt(s0)}\t{math.sqrt(s1)}\n')
 
     def _evaluate_lr_change(self, detailed=None, update=True):
         if detailed is None:
@@ -84,7 +101,8 @@ class StatLRSceduler:
                 break
                 
         if jitter_tested and n[0] == n[1] and n[0] >= 2 and n[1] >= 2:
-            decision, p_value = self._eval_jitter(n, s, s2)
+            decision, p_value, d0, d1, s0, s1 = self._eval_jitter(n, s, s2)
+            self._log(n, s, s2, decision, p_value, d0, d1, s0, s1)
             print(f'detailed: {detailed}, n: {n[0]}, p_value: {p_value}, decision: {decision}')
             if update and decision:
                 k = 1 + self.step_lr_scale
@@ -102,9 +120,9 @@ class StatLRSceduler:
         nu = int( (s1 + s0)**2 / (  s1**2/(n[1]-1) + s0**2/(n[0]-1) ) )
         p_value = stats.t.sf(abs(t), nu)  # p-value for any side
         if p_value > self.jitter_pvalue_thr:
-            return 0, p_value
+            return 0, p_value, d0, d1, s0, s1
         else:
-            return 1 if t > 0 else -1, p_value
+            return 1 if t > 0 else -1, p_value, d0, d1, s0, s1
 
     def _update_is_hi(self):
         self.is_hi_is_random = not self.is_hi_is_random

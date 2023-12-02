@@ -24,6 +24,7 @@ jitter=1,
 jitter_pvalue_thr=0.05,
 step_lr_scale=1,
 use_detailed_stat=False,
+#log_file='/home/jovyan/ovodov/stat_lr/log.txt',
 )
 
 BASE_LOG_DIR = Path(__file__).parent / 'results'
