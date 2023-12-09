@@ -14,34 +14,42 @@ import stat_scheduler2
 
 USE_STAT_LR = True
 EPOCHS = 24
-BATCH_SIZE = 10
-BASE_LR = 0.001 # if USE_STAT_LR else 0.5  #GVNC
+BATCH_SIZE = 10  # 512 for baseline
+BASE_LR = 0.1 if USE_STAT_LR else 0.5  # GVNC 0.5 for baseline
 VAL_PERIOD = 2
 USE_AMP = True
+
+LOG_FILE=None
+#LOG_FILE='/home/jovyan/ovodov/stat_lr/log/log-1.txt'
 
 sched_params = dict(
 jitter=1,
 jitter_pvalue_thr=0.05,
 step_lr_scale=1,
 use_detailed_stat=False,
-#log_file='/home/jovyan/ovodov/stat_lr/log.txt',
 )
 
 BASE_LOG_DIR = Path(__file__).parent / 'results'
 if USE_STAT_LR:
-    EXPERIMENT = f'stat_bs-{BATCH_SIZE}_lr-{BASE_LR}_{" ".join([k + "_"+str(v) for k,v in sched_params.items()])}'
+    EXPERIMENT = f'stat_momentum_0_bs-{BATCH_SIZE}_lr-{BASE_LR}_{" ".join([k + "_"+str(v) for k,v in sched_params.items()])}'
 else:
-    EXPERIMENT = f'baseline_bs-{BATCH_SIZE}_lr-{BASE_LR}'
+    EXPERIMENT = f'baseline_momentum_0_bs-{BATCH_SIZE}_lr-{BASE_LR}'
 
 train_loader, test_loader = loaders.create_cifar_loaders(BATCH_SIZE, use_amp=USE_AMP)
 model = model.create_model()
 
 def train():
-    opt = SGD(model.parameters(), lr=BASE_LR, momentum=0.9, weight_decay=5e-4)
+    opt = SGD(model.parameters(), lr=BASE_LR, momentum=0, weight_decay=5e-4)  # GVNC momentum=0.9 for baseline
     iters_per_epoch = len(train_loader)
 
     if USE_STAT_LR:
-        scheduler = stat_scheduler2.StatLRSceduler(opt, **sched_params)
+        scheduler = stat_scheduler2.StatLRSceduler(opt, log_file=LOG_FILE, **sched_params)
+    else:
+        lr_schedule = np.interp(np.arange((EPOCHS+1) * iters_per_epoch),
+                                [0, 5 * iters_per_epoch, EPOCHS * iters_per_epoch],
+                                [0, 1, 0])
+        scheduler = lr_scheduler.LambdaLR(opt, lr_schedule.__getitem__)
+        
     scaler = GradScaler(enabled=USE_AMP)
     loss_fn = CrossEntropyLoss(label_smoothing=0.1, reduction='none')
     
@@ -63,15 +71,16 @@ def train():
                 out = model(ims)
                 loss = loss_fn(out, labs)
             writer.add_scalar('train/loss', loss.mean().item(), logget_step)
+            writer.add_scalar('train/base_lr', scheduler.base_lrs[0], logget_step)
 
             if USE_STAT_LR:
-                writer.add_scalar('train/base_lr', scheduler.base_lrs[0], logget_step)
                 scheduler.step(loss=loss)
 
             scaler.scale(loss).mean().backward()
             scaler.step(opt)
             scaler.update()
-
+            if not USE_STAT_LR:
+                scheduler.step()
         if ep % VAL_PERIOD == 0 or ep == EPOCHS-1:
             metrix = eval()
             writer.add_scalar('test/accuracy', metrix['accuracy'], logget_step)

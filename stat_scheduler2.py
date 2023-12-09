@@ -107,7 +107,7 @@ class StatLRSceduler:
         if jitter_tested and n[0] == n[1] and n[0] >= 2 and n[1] >= 2:
             decision, p_value, d0, d1, s0, s1 = self._eval_jitter(n, s, s2)
             self._log(n, s, s2, decision, p_value, d0, d1, s0, s1)
-            print(f'detailed: {detailed}, n: {n[0]}, p_value: {p_value}, decision: {decision}')
+            #print(f'detailed: {detailed}, n: {n[0]}, p_value: {p_value}, decision: {decision}')
             if update and decision:
                 k = 1 + self.step_lr_scale
                 if decision < 0:
