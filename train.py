@@ -12,14 +12,19 @@ import model
 import loaders
 
 BATCH_SIZE = 512
+BATCH_SPLIT = 8
 BASE_LR = 0.1
 MOMENTUM = 0.9
 BASE_LOG_DIR = Path(__file__).parent / 'results/statopt'
-EXPERIMENT = f'baseline_bs{BATCH_SIZE}_lr{BASE_LR}_m{MOMENTUM}'
+EXPERIMENT = f'baseline_bs{BATCH_SIZE}_lr{BASE_LR}_m{MOMENTUM}_batchsplit{BATCH_SPLIT}'
 
 EPOCHS = 24
 VAL_STEP = 25000
 USE_TTA_EVAL = False
+
+assert BATCH_SIZE % BATCH_SPLIT == 0, "Batch size must be divisible by batch split"
+BATCH_SIZE = BATCH_SIZE // BATCH_SPLIT
+assert BATCH_SIZE > 0, "Batch size must be greater than 0"
 
 train_loader, test_loader = loaders.create_cifar_loaders(BATCH_SIZE, use_amp=False)
 model = model.create_model()
@@ -37,18 +42,25 @@ def train():
 
     global_step = 0
     prev_eval_step = 0
+    iteration_no = 0
+    opt.zero_grad(set_to_none=True)  # Initialize gradients at the start of epoch
+    loss = 0
     for ep in range(EPOCHS):
         epoch_start_time = time.time()
         pbar = tqdm(train_loader, postfix={'epoch': ep})
         for ims, labs in pbar:
+            iteration_no += 1
             global_step += BATCH_SIZE
-            opt.zero_grad(set_to_none=True)
             out = model(ims)
-            loss = loss_fn(out, labs)
-            loss.backward()
-            opt.step()
+            loss_i = loss_fn(out, labs) / BATCH_SPLIT
+            loss += loss_i
+            loss_i.backward()
+            if iteration_no % BATCH_SPLIT == 0:
+                opt.step()
+                opt.zero_grad(set_to_none=True)
+                writer.add_scalar('train/loss', loss.mean().item(), global_step)
+                loss = 0
             scheduler.step()
-            writer.add_scalar('train/loss', loss.mean().item(), global_step)
             writer.add_scalar('train/lr', opt.param_groups[0]['lr'], global_step)
             writer.add_scalar('train/epoch', ep, global_step)
         epoch_time = time.time() - epoch_start_time
