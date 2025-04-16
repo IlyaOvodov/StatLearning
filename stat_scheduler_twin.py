@@ -6,7 +6,10 @@ import random
 from scipy import stats
 import torch
 
-LossRec = namedtuple('LossRec', ['step', 'd_sum_lo', 'd_sqr_sum_lo', 'd_sum_hi', 'd_sqr_sum_hi', 'n'])
+LossRec = namedtuple('LossRec', ['step',
+                                 'd_sum_lo', # 'd_sqr_sum_lo',
+                                 'd_sum_hi', # 'd_sqr_sum_hi', 
+                                 'd_lo_is_better', 'd_hi_is_better', 'n'])
 
 class StatLRSceduler:
 
@@ -49,11 +52,15 @@ class StatLRSceduler:
             delta_sqr_lo = delta_lo * delta_lo
             delta_hi = prev_loss - loss_hi.detach().type(torch.DoubleTensor)
             delta_sqr_hi = delta_hi * delta_hi
+            d_lo_is_better = (delta_lo > delta_hi).sum().item()
+            d_hi_is_better = (delta_hi > delta_lo).sum().item()
             self.deltas.append( LossRec(step=self.step_no,  # for debugging
                                         d_sum_lo=delta_lo.sum().item(),
-                                        d_sqr_sum_lo=delta_sqr_lo.sum().item(),
+                                        #d_sqr_sum_lo=delta_sqr_lo.sum().item(),
                                         d_sum_hi=delta_hi.sum().item(),
-                                        d_sqr_sum_hi=delta_sqr_hi.sum().item(),
+                                        # d_sqr_sum_hi=delta_sqr_hi.sum().item(),
+                                        d_lo_is_better=d_lo_is_better,
+                                        d_hi_is_better=d_hi_is_better,
                                         n=len(delta_lo)))
 
     def _log(self, n, s, s2, decision = None, p_value=None, d0=None, d1=None, s0=None, s1=None):
@@ -73,28 +80,34 @@ class StatLRSceduler:
         if detailed is None:
             detailed = self.use_detailed_stat
         n = 0
-        s = [0,0]
-        s2 = [0,0]
+        # s = [0,0]
+        # s2 = [0,0]
+        n_is_better = [0,0]
         jitter_tested = False
         stop_tested = False
         decision, p_value, d0, d1, s0, s1 = None,None,None,None,None,None
         for i, loss_rec in enumerate(self.deltas[: : -1]):
-            s[0] += loss_rec.d_sum_lo
-            s[1] += loss_rec.d_sum_hi
+            # s[0] += loss_rec.d_sum_lo
+            # s[1] += loss_rec.d_sum_hi
             if detailed:
                 n += loss_rec.n
-                s2[0] += loss_rec.d_sqr_sum_lo               
-                s2[1] += loss_rec.d_sqr_sum_hi               
+                # s2[0] += loss_rec.d_sqr_sum_lo               
+                # s2[1] += loss_rec.d_sqr_sum_hi
+                n_is_better[0] += loss_rec.d_lo_is_better
+                n_is_better[1] += loss_rec.d_hi_is_better
             else:
                 n += 1
-                s2[0] += loss_rec.d_sum_lo*loss_rec.d_sum_lo
-                s2[1] += loss_rec.d_sum_hi*loss_rec.d_sum_hi
+                # s2[0] += loss_rec.d_sum_lo*loss_rec.d_sum_lo
+                # s2[1] += loss_rec.d_sum_hi*loss_rec.d_sum_hi
+                n_is_better[0] += int(loss_rec.d_lo_is_better > loss_rec.d_hi_is_better)
+                n_is_better[1] += int(loss_rec.d_hi_is_better > loss_rec.d_lo_is_better)
 
             if len(self.deltas) - i - 1 <= self.evaluation_start_index:
                 jitter_tested = True
             else:
                 if not jitter_tested and n >= 2:
-                    decision, p_value, d0, d1, s0, s1 = self._eval_jitter_xi(n, s, s2)
+                    #decision, p_value, d0, d1, s0, s1 = self._eval_jitter_xi(n, s, s2)
+                    decision, p_value, d0, d1, s0, s1 = self._eval_jitter_bin(n, n_is_better)
                     #print(f'detailed: {detailed}, n: {n}, p_value: {p_value}, decision: {decision}')
                     if update and decision:
                         k = 1 + self.step_lr_scale
@@ -110,8 +123,22 @@ class StatLRSceduler:
             if jitter_tested and stop_tested:
                 break
                 
-        self._log(n, s, s2, decision, p_value, d0, d1, s0, s1)
+        self._log(n, None, None, decision, p_value, d0, d1, s0, s1)
         return decision
+
+    def _eval_jitter_bin(self, n, n_is_better):
+        if n_is_better[0] > n/2:
+            p_value = stats.binom_test(n_is_better[0], n=n, alternative='greater')
+            decision = -1
+        elif n_is_better[1] > n/2:
+            p_value = stats.binom_test(n_is_better[1], n=n, alternative='greater')
+            decision = 1
+        else:
+            p_value = 1
+        if p_value > self.jitter_pvalue_thr:
+            return 0, p_value, None, None, None, None,
+        else:
+            return decision, p_value, None, None, None, None,
 
     def _eval_jitter_xi(self, n, s, s2):
         d0, d1 = (s[i]/n for i in (0,1))
@@ -149,5 +176,6 @@ class StatLRSceduler:
             self._update_opt_lr()
         
         use_hi = random.random() > 0.5
+#        use_hi = loss_hi.detach().sum() < loss_lo.detach().sum()
         return use_hi
         

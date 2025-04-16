@@ -17,21 +17,21 @@ EPOCHS = 24
 BATCH_SIZE = 10  # 512 for baseline
 BASE_LR = 0.00001 if USE_STAT_LR else 0.5  # GVNC 0.5 for baseline
 VAL_PERIOD = 2
-USE_AMP = True
+USE_AMP = False
 
 LOG_FILE=None
-LOG_FILE='/home/jovyan/ovodov/stat_lr/log/log-twin.txt'
+#LOG_FILE='/home/jovyan/ovodov/stat_lr/log/log-twin.txt'
 
 sched_params = dict(
 jitter=1,
 jitter_pvalue_thr=0.05,
-step_lr_scale=1,
+step_lr_scale=0.1,
 use_detailed_stat=False,
 )
 
 BASE_LOG_DIR = Path(__file__).parent / 'results'
 if USE_STAT_LR:
-    EXPERIMENT = f'stat_twin_momentum_0_bs-{BATCH_SIZE}_lr-{BASE_LR}_{" ".join([k + "_"+str(v) for k,v in sched_params.items()])}'
+    EXPERIMENT = f'stat_twin_bin_momentum_0_bs-{BATCH_SIZE}_lr-{BASE_LR}_{" ".join([k + "_"+str(v) for k,v in sched_params.items()])}'
 else:
     EXPERIMENT = f'baseline_momentum_0_bs-{BATCH_SIZE}_lr-{BASE_LR}'
 
