@@ -4,6 +4,7 @@ import torch
 from torch.nn import CrossEntropyLoss
 from torch.optim import SGD, lr_scheduler
 from torch.utils.tensorboard import SummaryWriter
+import time
 
 from tqdm import tqdm
 
@@ -17,7 +18,7 @@ BASE_LOG_DIR = Path(__file__).parent / 'results/statopt'
 EXPERIMENT = f'baseline_bs{BATCH_SIZE}_lr{BASE_LR}_m{MOMENTUM}'
 
 EPOCHS = 24
-VAL_STEP = 50000
+VAL_STEP = 25000
 USE_TTA_EVAL = False
 
 train_loader, test_loader = loaders.create_cifar_loaders(BATCH_SIZE, use_amp=False)
@@ -37,6 +38,7 @@ def train():
     global_step = 0
     prev_eval_step = 0
     for ep in range(EPOCHS):
+        epoch_start_time = time.time()
         pbar = tqdm(train_loader, postfix={'epoch': ep})
         for ims, labs in pbar:
             global_step += BATCH_SIZE
@@ -49,6 +51,8 @@ def train():
             writer.add_scalar('train/loss', loss.mean().item(), global_step)
             writer.add_scalar('train/lr', opt.param_groups[0]['lr'], global_step)
             writer.add_scalar('train/epoch', ep, global_step)
+        epoch_time = time.time() - epoch_start_time
+        writer.add_scalar('train/epoch_time', epoch_time, global_step)
         if global_step >= prev_eval_step + VAL_STEP:
             eval(writer, global_step)
             prev_eval_step = global_step
