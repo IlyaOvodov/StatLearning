@@ -15,10 +15,13 @@ DEBUG = True
 
 LARGE_BATCH = 32
 SMALL_BATCH = 8
-BASE_LR = 0.01
+BASE_LR = 0.0001
+LR_GROW = 0.01
+LR_SHRINK = 0.01
+SELECTION_METHOD = 'meangrad2'
 MOMENTUM = 0 #0.9
 BASE_LOG_DIR = Path(__file__).parent / 'results/statopt'
-EXPERIMENT = f'fix_opt/largebs{LARGE_BATCH}_smallbs{SMALL_BATCH}_lr{BASE_LR}_m{MOMENTUM}'
+EXPERIMENT = f'fix_opt/{SELECTION_METHOD}_largebs{LARGE_BATCH}_smallbs{SMALL_BATCH}_lr{BASE_LR}_grow{LR_GROW}_shrink{LR_SHRINK}_m{MOMENTUM}'
 
 EPOCHS = 10
 VAL_STEP = 25000
@@ -30,7 +33,7 @@ train_loader, test_loader = loaders.create_cifar_loaders(SMALL_BATCH, use_amp=Fa
 model = model.create_model()
 
 def train():
-    opt = SGDWithStatsFixed(model.parameters(), lr=BASE_LR, momentum=MOMENTUM, weight_decay=5e-4)
+    opt = SGDWithStatsFixed(model.parameters(), lr=BASE_LR, momentum=MOMENTUM, weight_decay=5e-4, lr_grow=LR_GROW, lr_shrink=LR_SHRINK, selection_method=SELECTION_METHOD)
     iters_per_epoch = len(train_loader)
     # lr_schedule = np.interp(np.arange((EPOCHS+1) * iters_per_epoch),
     #                         [0, 5 * iters_per_epoch, EPOCHS * iters_per_epoch],

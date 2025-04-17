@@ -58,12 +58,13 @@ class SGDWithStats(SGD):
         return t_value
         
 class SGDWithStatsFixed(SGDWithStats):
-    def __init__(self, *args, lr_grow = 0.01, lr_shrink = 0.02, min_step=0.000001, max_step=0.1, **kwargs):
+    def __init__(self, *args, lr_grow = 0.01, lr_shrink = 0.02, min_step=0.000001, max_step=0.1, selection_method = 'meangrad', **kwargs):
         super().__init__(*args, **kwargs)
         self.lr_grow = lr_grow
         self.lr_shrink = lr_shrink
         self.max_step = max_step
         self.min_step = min_step
+        self.selection_method = selection_method
 
     @_use_grad_for_differentiable
     def step(self):
@@ -127,16 +128,31 @@ class SGDWithStatsFixed(SGDWithStats):
                     grad = grad.add(buf, alpha=momentum)
                 else:
                     grad = buf
-            
-            mean_grad = grad.abs().mean()
-            grad_sign = (torch.sign(grad)*(grad.abs() > mean_grad)).to(torch.int)
+            USE_MEAN_GRAD = self.selection_method == 'meangrad'
+            USE_MEAN_GRAD2 = self.selection_method == 'meangrad2'
+            USE_T_VALUE = self.selection_method == 'tvalue'
+            grad_sign = torch.sign(grad).to(torch.int)
             prev_sign = state.get("prev_sign", torch.zeros_like(grad_sign))
             lr_scale = state.get("lr_scale", torch.zeros_like(grad) + 1)
-            lr_scale[grad_sign & prev_sign & (grad_sign == prev_sign)] = (lr_scale[grad_sign & prev_sign & (grad_sign == prev_sign)]*(1+self.lr_grow)).clip(max=self.max_step/lr)
+            if USE_MEAN_GRAD:
+                mean_grad = grad.abs().mean()
+                grad_sign = (grad_sign*(grad.abs() > mean_grad)).to(torch.int)
+                validity_mask = (grad_sign!=0) & (prev_sign!=0)
+            elif USE_MEAN_GRAD2:
+                mean_grad = grad.abs().mean()
+                validity_mask = (grad.abs() > mean_grad)
+            else:
+                validity_mask = 1
+            mask = validity_mask & (grad_sign == prev_sign)
+            lr_scale.mul_(1 + mask*self.lr_grow).clip_(max=self.max_step/lr)
             step = -grad_sign*lr*lr_scale
-            lr_scale[grad_sign & prev_sign & (grad_sign != prev_sign)] = (lr_scale[grad_sign & prev_sign & (grad_sign != prev_sign)]/(1+self.lr_shrink)).clip(min=self.min_step/lr)
+            mask = validity_mask & (grad_sign != prev_sign)
+            lr_scale.div_(1+mask*self.lr_shrink).clip_(min=self.min_step/lr)
             param.add_(step)
             if weight_decay != 0:
                 param.add_(param, alpha=-lr*weight_decay)
-            state["prev_sign"] = grad_sign
+            if USE_MEAN_GRAD:
+                state["prev_sign"] = grad_sign
+            else:
+                state["prev_sign"] = grad_sign*validity_mask + prev_sign*~validity_mask
             state["lr_scale"] = lr_scale
