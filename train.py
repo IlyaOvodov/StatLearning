@@ -10,15 +10,15 @@ from tqdm import tqdm
 
 import model
 import loaders
-from sgd_with_stats import SGDWithStats
+from sgd_with_stats import SGDWithStats, SGDWithStatsFixed
 DEBUG = True
 
 LARGE_BATCH = 32
 SMALL_BATCH = 8
 BASE_LR = 0.01
-MOMENTUM = 0.9
+MOMENTUM = 0 #0.9
 BASE_LOG_DIR = Path(__file__).parent / 'results/statopt'
-EXPERIMENT = f'bs8LR/largebs{LARGE_BATCH}_smallbs{SMALL_BATCH}_lr{BASE_LR}_m{MOMENTUM}'
+EXPERIMENT = f'fix_opt/largebs{LARGE_BATCH}_smallbs{SMALL_BATCH}_lr{BASE_LR}_m{MOMENTUM}'
 
 EPOCHS = 10
 VAL_STEP = 25000
@@ -30,7 +30,7 @@ train_loader, test_loader = loaders.create_cifar_loaders(SMALL_BATCH, use_amp=Fa
 model = model.create_model()
 
 def train():
-    opt = SGDWithStats(model.parameters(), lr=BASE_LR, momentum=MOMENTUM, weight_decay=5e-4)
+    opt = SGDWithStatsFixed(model.parameters(), lr=BASE_LR, momentum=MOMENTUM, weight_decay=5e-4)
     iters_per_epoch = len(train_loader)
     # lr_schedule = np.interp(np.arange((EPOCHS+1) * iters_per_epoch),
     #                         [0, 5 * iters_per_epoch, EPOCHS * iters_per_epoch],
@@ -76,6 +76,14 @@ def train():
                     #     print(f"{name}: {opt.t_value(p).mean().item()}")
 
                 opt.step()
+
+                if isinstance(opt, SGDWithStatsFixed):
+                    ls_scles = [opt.state[p]["lr_scale"].reshape(-1) for p in model.parameters()]
+                    ls_scles = torch.cat(ls_scles)
+                    writer.add_scalar('train/ls_scale_mean', ls_scles.mean().item(), global_step)
+                    writer.add_scalar('train/ls_scale_max', ls_scles.max().item(), global_step)
+                    writer.add_scalar('train/ls_scale_min', ls_scles.min().item(), global_step)
+
                 opt.zero_grad(set_to_none=True)
                 writer.add_scalar('train/loss', loss.mean().item(), global_step)
                 loss = 0
