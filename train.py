@@ -10,15 +10,17 @@ from tqdm import tqdm
 
 import model
 import loaders
+from sgd_with_stats import SGDWithStats
+DEBUG = True
 
-LARGE_BATCH = 512
-SMALL_BATCH = 64
-BASE_LR = 0.1
+LARGE_BATCH = 32
+SMALL_BATCH = 8
+BASE_LR = 0.01
 MOMENTUM = 0.9
 BASE_LOG_DIR = Path(__file__).parent / 'results/statopt'
-EXPERIMENT = f'baseln/largebs{LARGE_BATCH}_smallbs{SMALL_BATCH}_lr{BASE_LR}_m{MOMENTUM}'
+EXPERIMENT = f'bs8LR/largebs{LARGE_BATCH}_smallbs{SMALL_BATCH}_lr{BASE_LR}_m{MOMENTUM}'
 
-EPOCHS = 24
+EPOCHS = 10
 VAL_STEP = 25000
 USE_TTA_EVAL = False
 
@@ -28,12 +30,13 @@ train_loader, test_loader = loaders.create_cifar_loaders(SMALL_BATCH, use_amp=Fa
 model = model.create_model()
 
 def train():
-    opt = SGD(model.parameters(), lr=BASE_LR, momentum=MOMENTUM, weight_decay=5e-4)
+    opt = SGDWithStats(model.parameters(), lr=BASE_LR, momentum=MOMENTUM, weight_decay=5e-4)
     iters_per_epoch = len(train_loader)
-    lr_schedule = np.interp(np.arange((EPOCHS+1) * iters_per_epoch),
-                            [0, 5 * iters_per_epoch, EPOCHS * iters_per_epoch],
-                            [0, 1, 0])
-    scheduler = lr_scheduler.LambdaLR(opt, lr_schedule.__getitem__)
+    # lr_schedule = np.interp(np.arange((EPOCHS+1) * iters_per_epoch),
+    #                         [0, 5 * iters_per_epoch, EPOCHS * iters_per_epoch],
+    #                         [0, 1, 0])
+    # scheduler = lr_scheduler.LambdaLR(opt, lr_schedule.__getitem__)
+    scheduler = None
     loss_fn = CrossEntropyLoss(label_smoothing=0.1)
     
     writer = SummaryWriter(log_dir=BASE_LOG_DIR / EXPERIMENT)
@@ -54,13 +57,30 @@ def train():
             out = model(ims)
             loss_i = loss_fn(out, labs) * bs / LARGE_BATCH
             loss += loss_i
+            opt.update_before_backward()
             loss_i.backward()
+            opt.update_after_backward()
             if iteration_no % batch_split == 0:
+                
+                if batch_split != 1:
+                    all_t_values = torch.cat([opt.t_value(p).reshape(-1) for p in model.parameters()])
+                    max_t_value = all_t_values.max().item()
+                    mean_t_value = all_t_values.mean().item()
+                    med_t_value = torch.quantile(all_t_values, 0.5).item()
+                    max90_t_value = torch.quantile(all_t_values, 0.9).item()
+                    writer.add_scalar('train/t_value', mean_t_value, global_step)
+                    writer.add_scalar('train/t_value_max', max_t_value, global_step)
+                    writer.add_scalar('train/t_value_max90', max90_t_value, global_step)
+                    writer.add_scalar('train/t_value_med', med_t_value, global_step)
+                    # for name, p in model.named_parameters():
+                    #     print(f"{name}: {opt.t_value(p).mean().item()}")
+
                 opt.step()
                 opt.zero_grad(set_to_none=True)
                 writer.add_scalar('train/loss', loss.mean().item(), global_step)
                 loss = 0
-            scheduler.step()
+            if scheduler is not None:
+                scheduler.step()
             writer.add_scalar('train/lr', opt.param_groups[0]['lr'], global_step)
             writer.add_scalar('train/epoch', ep, global_step)
         epoch_time = time.time() - epoch_start_time
