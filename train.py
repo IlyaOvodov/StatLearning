@@ -11,22 +11,20 @@ from tqdm import tqdm
 import model
 import loaders
 
-BATCH_SIZE = 512
-BATCH_SPLIT = 8
+LARGE_BATCH = 512
+SMALL_BATCH = 64
 BASE_LR = 0.1
 MOMENTUM = 0.9
 BASE_LOG_DIR = Path(__file__).parent / 'results/statopt'
-EXPERIMENT = f'baseline_bs{BATCH_SIZE}_lr{BASE_LR}_m{MOMENTUM}_batchsplit{BATCH_SPLIT}'
+EXPERIMENT = f'baseln/largebs{LARGE_BATCH}_smallbs{SMALL_BATCH}_lr{BASE_LR}_m{MOMENTUM}'
 
 EPOCHS = 24
 VAL_STEP = 25000
 USE_TTA_EVAL = False
 
-assert BATCH_SIZE % BATCH_SPLIT == 0, "Batch size must be divisible by batch split"
-BATCH_SIZE = BATCH_SIZE // BATCH_SPLIT
-assert BATCH_SIZE > 0, "Batch size must be greater than 0"
+assert LARGE_BATCH % SMALL_BATCH == 0, "LARGE_BATCH size must be divisible by SMALL_BATCH size"
 
-train_loader, test_loader = loaders.create_cifar_loaders(BATCH_SIZE, use_amp=False)
+train_loader, test_loader = loaders.create_cifar_loaders(SMALL_BATCH, use_amp=False)
 model = model.create_model()
 
 def train():
@@ -44,18 +42,20 @@ def train():
     prev_eval_step = 0
     iteration_no = 0
     opt.zero_grad(set_to_none=True)  # Initialize gradients at the start of epoch
+    batch_split = LARGE_BATCH // SMALL_BATCH
     loss = 0
     for ep in range(EPOCHS):
         epoch_start_time = time.time()
         pbar = tqdm(train_loader, postfix={'epoch': ep})
         for ims, labs in pbar:
             iteration_no += 1
-            global_step += BATCH_SIZE
+            bs = len(ims)
+            global_step += bs
             out = model(ims)
-            loss_i = loss_fn(out, labs) / BATCH_SPLIT
+            loss_i = loss_fn(out, labs) * bs / LARGE_BATCH
             loss += loss_i
             loss_i.backward()
-            if iteration_no % BATCH_SPLIT == 0:
+            if iteration_no % batch_split == 0:
                 opt.step()
                 opt.zero_grad(set_to_none=True)
                 writer.add_scalar('train/loss', loss.mean().item(), global_step)
@@ -68,6 +68,7 @@ def train():
         if global_step >= prev_eval_step + VAL_STEP:
             eval(writer, global_step)
             prev_eval_step = global_step
+    print(f"{EXPERIMENT} finished")
 
 def eval(writer, global_step):
     model.eval()
