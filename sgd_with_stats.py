@@ -153,9 +153,11 @@ class SGDWithStatsFixed(SGDWithStats):
                 mean_grad = grad.abs().mean()
                 grad_sign = (grad_sign*(grad.abs() > mean_grad)).to(torch.int)
                 validity_mask = (grad_sign!=0) & (prev_sign!=0)
+                param_update_validity_mask = 1 # grad_sign already has 0s out of mask   
             elif USE_MEAN_GRAD2:
                 mean_grad = grad.abs().mean()
                 validity_mask = (grad.abs() > mean_grad)
+                param_update_validity_mask = validity_mask
             elif USE_T_VALUE:
                 t_value = self.t_value(param)
                 num_updates = state["num_updates"]
@@ -164,11 +166,13 @@ class SGDWithStatsFixed(SGDWithStats):
                 # threshold_values = self.t_thresholds[num_updates.reshape(-1).long()].view_as(t_value)
                 threshold_values = self.t_thresholds
                 validity_mask = (t_value >= threshold_values) & (num_updates >= self.n_thresholds)
+                param_update_validity_mask = validity_mask
             else:
                 validity_mask = 1
+                param_update_validity_mask = 1
             mask = validity_mask & (grad_sign == prev_sign)
             lr_scale.mul_(1 + mask*self.lr_grow).clip_(max=self.max_step/lr)
-            step = -grad_sign*lr*lr_scale
+            step = -grad_sign*lr*lr_scale*param_update_validity_mask
             mask = validity_mask & (grad_sign != prev_sign)
             lr_scale.div_(1+mask*self.lr_shrink).clip_(min=self.min_step/lr)
             param.add_(step)
