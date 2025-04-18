@@ -15,13 +15,14 @@ DEBUG = True
 
 LARGE_BATCH = 32
 SMALL_BATCH = 8
-BASE_LR = 0.0001
+BASE_LR = 0.001
 LR_GROW = 0.01
 LR_SHRINK = 0.01
-SELECTION_METHOD = 'meangrad2'
+SELECTION_METHOD = 'tvalue2'
 MOMENTUM = 0 #0.9
 BASE_LOG_DIR = Path(__file__).parent / 'results/statopt'
 EXPERIMENT = f'fix_opt/{SELECTION_METHOD}_largebs{LARGE_BATCH}_smallbs{SMALL_BATCH}_lr{BASE_LR}_grow{LR_GROW}_shrink{LR_SHRINK}_m{MOMENTUM}'
+print(EXPERIMENT)
 
 EPOCHS = 10
 VAL_STEP = 25000
