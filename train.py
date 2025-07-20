@@ -8,36 +8,27 @@ import time
 
 from tqdm import tqdm
 
+from utils.config_processor import config
 import model
 import loaders
 from sgd_with_stats import SGDWithStats, SGDWithStatsFixed
-DEBUG = True
 
-LARGE_BATCH = 32
-SMALL_BATCH = 8
-BASE_LR = 0.001
-LR_GROW = 0.01
-LR_SHRINK = 0.01
-SELECTION_METHOD = 'tvalue2'
-MOMENTUM = 0 #0.9
-BASE_LOG_DIR = Path(__file__).parent / 'results/statopt'
-EXPERIMENT = f'fix_opt/{SELECTION_METHOD}prm_largebs{LARGE_BATCH}_smallbs{SMALL_BATCH}_lr{BASE_LR}_grow{LR_GROW}_shrink{LR_SHRINK}_m{MOMENTUM}'
+config.init(default_config_path='configs/default.yaml')
+
+BASE_LOG_DIR = Path(__file__).parent / config.BASE_LOG_DIR
+EXPERIMENT = f'fix_opt/{config.SELECTION_METHOD}prm_largebs{config.LARGE_BATCH}_smallbs{config.SMALL_BATCH}_lr{config.BASE_LR}_grow{config.LR_GROW}_shrink{config.LR_SHRINK}_m{config.MOMENTUM}'
 print(EXPERIMENT)
 
-EPOCHS = 10
-VAL_STEP = 25000
-USE_TTA_EVAL = False
+assert config.LARGE_BATCH % config.SMALL_BATCH == 0, "config.LARGE_BATCH size must be divisible by config.SMALL_BATCH size"
 
-assert LARGE_BATCH % SMALL_BATCH == 0, "LARGE_BATCH size must be divisible by SMALL_BATCH size"
-
-train_loader, test_loader = loaders.create_cifar_loaders(SMALL_BATCH, use_amp=False)
+train_loader, test_loader = loaders.create_cifar_loaders(config.SMALL_BATCH, use_amp=False)
 model = model.create_model()
 
 def train():
-    opt = SGDWithStatsFixed(model.parameters(), lr=BASE_LR, momentum=MOMENTUM, weight_decay=5e-4, lr_grow=LR_GROW, lr_shrink=LR_SHRINK, selection_method=SELECTION_METHOD)
+    opt = SGDWithStatsFixed(model.parameters(), lr=config.BASE_LR, momentum=config.MOMENTUM, weight_decay=5e-4, lr_grow=config.LR_GROW, lr_shrink=config.LR_SHRINK, selection_method=config.SELECTION_METHOD)
     iters_per_epoch = len(train_loader)
-    # lr_schedule = np.interp(np.arange((EPOCHS+1) * iters_per_epoch),
-    #                         [0, 5 * iters_per_epoch, EPOCHS * iters_per_epoch],
+    # lr_schedule = np.interp(np.arange((config.EPOCHS+1) * iters_per_epoch),
+    #                         [0, 5 * iters_per_epoch, config.EPOCHS * iters_per_epoch],
     #                         [0, 1, 0])
     # scheduler = lr_scheduler.LambdaLR(opt, lr_schedule.__getitem__)
     scheduler = None
@@ -49,9 +40,9 @@ def train():
     prev_eval_step = 0
     iteration_no = 0
     opt.zero_grad(set_to_none=True)  # Initialize gradients at the start of epoch
-    batch_split = LARGE_BATCH // SMALL_BATCH
+    batch_split = config.LARGE_BATCH // config.SMALL_BATCH
     loss = 0
-    for ep in range(EPOCHS):
+    for ep in range(config.EPOCHS):
         epoch_start_time = time.time()
         pbar = tqdm(train_loader, postfix={'epoch': ep})
         for ims, labs in pbar:
@@ -59,7 +50,7 @@ def train():
             bs = len(ims)
             global_step += bs
             out = model(ims)
-            loss_i = loss_fn(out, labs) * bs / LARGE_BATCH
+            loss_i = loss_fn(out, labs) * bs / config.LARGE_BATCH
             loss += loss_i
             opt.update_before_backward()
             loss_i.backward()
@@ -97,7 +88,7 @@ def train():
             writer.add_scalar('train/epoch', ep, global_step)
         epoch_time = time.time() - epoch_start_time
         writer.add_scalar('train/epoch_time', epoch_time, global_step)
-        if global_step >= prev_eval_step + VAL_STEP:
+        if global_step >= prev_eval_step + config.VAL_STEP:
             eval(writer, global_step)
             prev_eval_step = global_step
     print(f"{EXPERIMENT} finished")
@@ -113,7 +104,7 @@ def eval(writer, global_step):
             out = model(ims)
             total_correct += out.argmax(1).eq(labs).sum().cpu().item()
             metrix['accuracy'] = total_correct / total_num * 100
-            if USE_TTA_EVAL:
+            if config.USE_TTA_EVAL:
                 out_flip = (out + model(torch.fliplr(ims))) / 2. # Test-time augmentation
                 total_correct_flip += out_flip.argmax(1).eq(labs).sum().cpu().item()
                 metrix['accuracy with TTA'] = total_correct_flip / total_num * 100
