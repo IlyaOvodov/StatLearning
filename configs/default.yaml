@@ -2,14 +2,23 @@
 
 BASE_LOG_DIR: results/statopt
 
-LARGE_BATCH: 32  # batch for fwd-bkwd pass
-SMALL_BATCH: 8  # batch for one forward pass
-BASE_LR: 0.001
-MOMENTUM: 0 #0.9
-EPOCHS: 10
+LARGE_BATCH: 64  # batch for fwd-bkwd pass
+SMALL_BATCH: 64  # batch for one forward pass
+BASE_LR: 0.01
+EPOCHS: 100
 VAL_STEP: 25000
 USE_TTA_EVAL: False
 
-SELECTION_METHOD: 'tvalue2'
-LR_GROW: 0.01
-LR_SHRINK: 0.01
+model:
+  type: tiny
+
+opt:
+  type: SGD
+  MOMENTUM: 0.9
+  WEIGHT_DECAY: 0.0005
+  # SELECTION_METHOD: 'tvalue2'
+  # LR_GROW: 0.01
+  # LR_SHRINK: 0.01
+
+LABEL_SMOOTH: 0 #.2
+CLIP_PROB: false
