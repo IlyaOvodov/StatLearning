@@ -1,6 +1,6 @@
 # DEBUG: True
 
-BASE_LOG_DIR: results/statopt
+BASE_LOG_DIR: results/statopt2/baseline_test
 
 LARGE_BATCH: 64  # batch for fwd-bkwd pass
 SMALL_BATCH: 64  # batch for one forward pass
