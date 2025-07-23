@@ -17,9 +17,11 @@ LEARNING_RATE = 0.01
 NUM_CLASSES = 10  # CIFAR-10 имеет 10 классов
 
 BASE_LOG_DIR = Path(__file__).parent / config.BASE_LOG_DIR
-EXPERIMENT = f'test_Resnet18_base0'
-print(str(BASE_LOG_DIR / EXPERIMENT))
-writer = SummaryWriter(log_dir=BASE_LOG_DIR / EXPERIMENT)
+EXPERIMENT = f'test_Resnet18_base1_noschedule'
+LOG_DIR = BASE_LOG_DIR / EXPERIMENT
+assert not os.path.exists(LOG_DIR), f"Directory {LOG_DIR} already exists!"
+print(str(LOG_DIR))
+writer = SummaryWriter(log_dir=LOG_DIR)
     
 # --- Трансформации данных ---
 transform_train = transforms.Compose([
@@ -49,7 +51,7 @@ model = model.to(device)
 # --- Оптимизатор и функция потерь ---
 criterion = nn.CrossEntropyLoss()
 optimizer = optim.SGD(model.parameters(), lr=config.BASE_LR, momentum=config.opt.MOMENTUM, weight_decay=config.opt.WEIGHT_DECAY)
-scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=2, gamma=0.1)  # Шаговое изменение LR
+scheduler = None # optim.lr_scheduler.StepLR(optimizer, step_size=2, gamma=0.1)  # Шаговое изменение LR
 
 # --- Функция вычисления точности ---
 def accuracy(output, target):
@@ -104,7 +106,8 @@ for epoch in range(config.EPOCHS):
           f"Train Loss: {train_loss:.4f}, Acc: {train_acc*100:.2f}% | "
           f"Val Loss: {val_loss:.4f}, Acc: {val_acc*100:.2f}%")
 
-    scheduler.step()
+    if scheduler is not None:
+        scheduler.step()
 
 # # --- Сохранение модели ---
 # torch.save(model.state_dict(), "resnet18_cifar10.pth")
