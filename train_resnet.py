@@ -19,7 +19,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 NUM_CLASSES = 10  # CIFAR-10 имеет 10 классов
 
 BASE_LOG_DIR = Path(__file__).parent / config.BASE_LOG_DIR
-EXPERIMENT = f'test_Resnet18_base4_kuangliu_Net' # https://github.com/kuangliu/pytorch-cifar
+EXPERIMENT = f'test_Resnet18_base5_kuangliu_noSched' # https://github.com/kuangliu/pytorch-cifar
 LOG_DIR = BASE_LOG_DIR / EXPERIMENT
 assert not os.path.exists(LOG_DIR), f"Directory {LOG_DIR} already exists!"
 print(str(LOG_DIR))
@@ -57,7 +57,7 @@ model = model.to(device)
 criterion = nn.CrossEntropyLoss()
 optimizer = optim.SGD(model.parameters(), lr=config.BASE_LR, momentum=config.opt.MOMENTUM, weight_decay=config.opt.WEIGHT_DECAY)
 scheduler = None # optim.lr_scheduler.StepLR(optimizer, step_size=2, gamma=0.1)  # Шаговое изменение LR
-scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=config.EPOCHS)
+# scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=config.EPOCHS)
 
 # --- Функция вычисления точности ---
 def accuracy(output, target):
