@@ -10,6 +10,7 @@ import time
 
 from utils.config_processor import config
 import loaders
+from resnet_k import ResNet18 as ResNet18_kuangliu
 
 config.init(default_config_path='configs/default.yaml')
 
@@ -18,7 +19,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 NUM_CLASSES = 10  # CIFAR-10 имеет 10 классов
 
 BASE_LOG_DIR = Path(__file__).parent / config.BASE_LOG_DIR
-EXPERIMENT = f'test_Resnet18_base3_kuangliu' # https://github.com/kuangliu/pytorch-cifar
+EXPERIMENT = f'test_Resnet18_base4_kuangliu_Net' # https://github.com/kuangliu/pytorch-cifar
 LOG_DIR = BASE_LOG_DIR / EXPERIMENT
 assert not os.path.exists(LOG_DIR), f"Directory {LOG_DIR} already exists!"
 print(str(LOG_DIR))
@@ -47,8 +48,9 @@ writer = SummaryWriter(log_dir=LOG_DIR)
 train_loader, val_loader = loaders.create_cifar_loaders(config.LARGE_BATCH, use_amp=False)
 
 # --- Создание модели ---
-model = models.resnet18()  # Используем модель без предобученных весов
-model.fc = nn.Linear(model.fc.in_features, NUM_CLASSES)  # Адаптируем для CIFAR-10
+# model = models.resnet18()  # Используем модель без предобученных весов
+# model.fc = nn.Linear(model.fc.in_features, NUM_CLASSES)  # Адаптируем для CIFAR-10
+model = ResNet18_kuangliu()
 model = model.to(device)
 
 # --- Оптимизатор и функция потерь ---
