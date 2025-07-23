@@ -10,7 +10,7 @@ VAL_STEP: 25000
 USE_TTA_EVAL: False
 
 model:
-  type: tiny
+  type: ResNet18_kuangliu
 
 opt:
   type: SGD
@@ -19,6 +19,11 @@ opt:
   # SELECTION_METHOD: 'tvalue2'
   # LR_GROW: 0.01
   # LR_SHRINK: 0.01
+
+scheduler:
+  type: CosineAnnealingLR
+  LR_MIN: 0. #001
+  BY_EPOCH: True
 
 LABEL_SMOOTH: 0 #.2
 CLIP_PROB: false

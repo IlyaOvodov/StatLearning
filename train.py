@@ -1,4 +1,5 @@
 import numpy as np
+import os
 from pathlib import Path
 import torch
 from torch.nn import CrossEntropyLoss
@@ -11,6 +12,7 @@ from tqdm import tqdm
 
 from utils.config_processor import config
 import model
+from resnet_k import ResNet18 as ResNet18_kuangliu
 import loaders
 from sgd_with_stats import SGDWithStats, SGDWithStatsFixed
 
@@ -18,8 +20,11 @@ config.init(default_config_path='configs/default.yaml')
 
 BASE_LOG_DIR = Path(__file__).parent / config.BASE_LOG_DIR
 # EXPERIMENT = f'fix_opt/{config.opt.SELECTION_METHOD}prm_largebs{config.LARGE_BATCH}_smallbs{config.SMALL_BATCH}_lr{config.BASE_LR}_grow{config.opt.LR_GROW}_shrink{config.opt.LR_SHRINK}_m{config.opt.MOMENTUM}'
-EXPERIMENT = f'{config.model.type}_{config.opt.type}_bs{config.LARGE_BATCH}_sbs{config.SMALL_BATCH}_lr{config.BASE_LR}_m{config.opt.MOMENTUM}_ls{config.LABEL_SMOOTH}{"_clip" if config.CLIP_PROB else ""}'
-print(EXPERIMENT)
+# EXPERIMENT = f'{config.model.type}_{config.opt.type}_bs{config.LARGE_BATCH}_sbs{config.SMALL_BATCH}_lr{config.BASE_LR}_m{config.opt.MOMENTUM}_ls{config.LABEL_SMOOTH}{"_clip" if config.CLIP_PROB else ""}'
+EXPERIMENT = f'{config.model.type}'
+LOG_DIR = BASE_LOG_DIR / EXPERIMENT
+assert not os.path.exists(LOG_DIR), f"Directory {LOG_DIR} already exists!"
+print(str(LOG_DIR))
 
 assert config.LARGE_BATCH % config.SMALL_BATCH == 0, "config.LARGE_BATCH size must be divisible by config.SMALL_BATCH size"
 
@@ -27,8 +32,10 @@ train_loader, test_loader = loaders.create_cifar_loaders(config.SMALL_BATCH, use
 
 if config.model.type == 'ResNet18':
     model = tvmodels.resnet18()
-if config.model.type == 'ResNet34':
+elif config.model.type == 'ResNet34':
     model = tvmodels.resnet34()
+elif config.model.type == 'ResNet18_kuangliu':
+    model = ResNet18_kuangliu() # https://github.com/kuangliu/pytorch-cifar
 elif config.model.type == 'tiny':
     model = model.create_model()
 model=model.cuda()
@@ -40,12 +47,16 @@ def train():
         opt = SGD(model.parameters(), lr=config.BASE_LR, momentum=config.opt.MOMENTUM, weight_decay=config.opt.WEIGHT_DECAY)
     else:
         raise ValueError()
+    
+    if config.scheduler.type == 'CosineAnnealingLR':
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=config.EPOCHS, eta_min=config.scheduler.LR_MIN)
+    else:
+        scheduler = None
     # iters_per_epoch = len(train_loader)
     # lr_schedule = np.interp(np.arange((config.EPOCHS+1) * iters_per_epoch),
     #                         [0, 5 * iters_per_epoch, config.EPOCHS * iters_per_epoch],
     #                         [0, 1, 0])
     # scheduler = lr_scheduler.LambdaLR(opt, lr_schedule.__getitem__)
-    scheduler = None
     loss_fn = CrossEntropyLoss(label_smoothing=config.LABEL_SMOOTH)
     
     writer = SummaryWriter(log_dir=BASE_LOG_DIR / EXPERIMENT)
@@ -105,10 +116,12 @@ def train():
                 writer.add_scalar('train/lr', opt.param_groups[0]['lr'], global_step)
                 writer.add_scalar('train/epoch', ep, global_step)
                 loss = 0
-                if scheduler is not None:
+                if scheduler is not None and not config.scheduler.BY_EPOCH:
                     scheduler.step()
         # end of itrations cycle
         epoch_time = time.time() - epoch_start_time
+        if scheduler is not None and config.scheduler.BY_EPOCH:
+            scheduler.step()
         writer.add_scalar('train/epoch_time', epoch_time, global_step)
         if global_step >= prev_eval_step + config.VAL_STEP:
             eval(writer, global_step, loss_fn)
@@ -120,7 +133,7 @@ def eval(writer, global_step, loss_fn):
     model.eval()
     metrix = dict()
     with torch.no_grad():
-        total_correct, total_correct_flip, total_num, loss = 0., 0., 0., 0., 0.
+        total_correct, total_correct_flip, total_num, loss = 0., 0., 0., 0.,
         pbar = tqdm(test_loader)
         for ims, labs in pbar:
             total_num += ims.shape[0]
