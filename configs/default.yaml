@@ -4,8 +4,8 @@ BASE_LOG_DIR: results/statopt2/resnet_test
 
 LARGE_BATCH: 128  # batch for fwd-bkwd pass
 SMALL_BATCH: 128  # batch for one forward pass
-BASE_LR: 0.1
-EPOCHS: 200
+BASE_LR: 0.05
+EPOCHS: 100
 VAL_STEP: 25000
 USE_TTA_EVAL: False
 
@@ -22,7 +22,7 @@ opt:
 
 scheduler:
   type: CosineAnnealingLR
-  LR_MIN: 0. #001
+  LR_MIN: 0.001
   BY_EPOCH: True
 
 LABEL_SMOOTH: 0 #.2
