@@ -8,6 +8,7 @@ from torch.utils.tensorboard import SummaryWriter
 import os
 
 from utils.config_processor import config
+import loaders
 
 config.init(default_config_path='configs/default.yaml')
 
@@ -17,31 +18,33 @@ LEARNING_RATE = 0.01
 NUM_CLASSES = 10  # CIFAR-10 имеет 10 классов
 
 BASE_LOG_DIR = Path(__file__).parent / config.BASE_LOG_DIR
-EXPERIMENT = f'test_Resnet18_base1_noschedule'
+EXPERIMENT = f'test_Resnet18_base2_ffcvLoaders'
 LOG_DIR = BASE_LOG_DIR / EXPERIMENT
 assert not os.path.exists(LOG_DIR), f"Directory {LOG_DIR} already exists!"
 print(str(LOG_DIR))
 writer = SummaryWriter(log_dir=LOG_DIR)
     
-# --- Трансформации данных ---
-transform_train = transforms.Compose([
-    transforms.RandomHorizontalFlip(),
-    transforms.RandomCrop(32, padding=4),
-    transforms.ToTensor(),
-    transforms.Normalize((0.4914, 0.4822, 0.4465), (0.247, 0.243, 0.261))
-])
+# # --- Трансформации данных ---
+# transform_train = transforms.Compose([
+#     transforms.RandomHorizontalFlip(),
+#     transforms.RandomCrop(32, padding=4),
+#     transforms.ToTensor(),
+#     transforms.Normalize((0.4914, 0.4822, 0.4465), (0.247, 0.243, 0.261))
+# ])
 
-transform_val = transforms.Compose([
-    transforms.ToTensor(),
-    transforms.Normalize((0.4914, 0.4822, 0.4465), (0.247, 0.243, 0.261))
-])
+# transform_val = transforms.Compose([
+#     transforms.ToTensor(),
+#     transforms.Normalize((0.4914, 0.4822, 0.4465), (0.247, 0.243, 0.261))
+# ])
 
-# --- Загрузка данных ---
-train_dataset = datasets.CIFAR10(root='./data', train=True, download=True, transform=transform_train)
-val_dataset = datasets.CIFAR10(root='./data', train=False, download=True, transform=transform_val)
+# # --- Загрузка данных ---
+# train_dataset = datasets.CIFAR10(root='./data', train=True, download=True, transform=transform_train)
+# val_dataset = datasets.CIFAR10(root='./data', train=False, download=True, transform=transform_val)
 
-train_loader = DataLoader(train_dataset, batch_size=config.LARGE_BATCH, shuffle=True, num_workers=2)
-val_loader = DataLoader(val_dataset, batch_size=config.LARGE_BATCH, shuffle=False, num_workers=2)
+# train_loader = DataLoader(train_dataset, batch_size=config.LARGE_BATCH, shuffle=True, num_workers=2)
+# val_loader = DataLoader(val_dataset, batch_size=config.LARGE_BATCH, shuffle=False, num_workers=2)
+
+train_loader, val_loader = loaders.create_cifar_loaders(config.LARGE_BATCH, use_amp=False)
 
 # --- Создание модели ---
 model = models.resnet18()  # Используем модель без предобученных весов
@@ -63,8 +66,10 @@ global_step = 0
 for epoch in range(config.EPOCHS):
     model.train()
     train_loss, train_acc = 0.0, 0.0
+    train_samples_no = 0
     for inputs, labels in train_loader:
         bs = len(inputs)
+        train_samples_no += bs
         global_step += bs
         inputs, labels = inputs.to(device), labels.to(device)
         
@@ -77,14 +82,16 @@ for epoch in range(config.EPOCHS):
         train_loss += loss.item() * inputs.size(0)
         train_acc += accuracy(outputs, labels).item() * inputs.size(0)
 
-    train_loss /= len(train_dataset)
-    train_acc /= len(train_dataset)
+    train_loss /= train_samples_no
+    train_acc /= train_samples_no
 
     # Валидация
     model.eval()
     val_loss, val_acc = 0.0, 0.0
+    val_samples_no = 0
     with torch.no_grad():
         for inputs, labels in val_loader:
+            val_samples_no += len(inputs)
             inputs, labels = inputs.to(device), labels.to(device)
             outputs = model(inputs)
             loss = criterion(outputs, labels)
@@ -92,8 +99,8 @@ for epoch in range(config.EPOCHS):
             val_loss += loss.item() * inputs.size(0)
             val_acc += accuracy(outputs, labels).item() * inputs.size(0)
 
-    val_loss /= len(val_dataset)
-    val_acc /= len(val_dataset)
+    val_loss /= val_samples_no
+    val_acc /= val_samples_no
     
     writer.add_scalar('train/loss', train_loss, global_step)
     writer.add_scalar('train/accuracy', train_acc*100, global_step)
