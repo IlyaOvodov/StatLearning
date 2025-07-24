@@ -4,6 +4,7 @@ from pathlib import Path
 import torch
 from torch.nn import CrossEntropyLoss
 from torch.optim import SGD, lr_scheduler
+import torch.nn.functional as F
 from torch.utils.tensorboard import SummaryWriter
 import torchvision.models as tvmodels
 import time
@@ -21,7 +22,7 @@ config.init(default_config_path='configs/default.yaml')
 BASE_LOG_DIR = Path(__file__).parent / config.BASE_LOG_DIR
 # EXPERIMENT = f'fix_opt/{config.opt.SELECTION_METHOD}prm_largebs{config.LARGE_BATCH}_smallbs{config.SMALL_BATCH}_lr{config.BASE_LR}_grow{config.opt.LR_GROW}_shrink{config.opt.LR_SHRINK}_m{config.opt.MOMENTUM}'
 # EXPERIMENT = f'{config.model.type}_{config.opt.type}_bs{config.LARGE_BATCH}_sbs{config.SMALL_BATCH}_lr{config.BASE_LR}_m{config.opt.MOMENTUM}_ls{config.LABEL_SMOOTH}{"_clip" if config.CLIP_PROB else ""}'
-EXPERIMENT = f'{config.model.type}_bs{config.LARGE_BATCH}_epochs{config.EPOCHS}_lr{config.BASE_LR}_minLR{config.scheduler.LR_MIN}'
+EXPERIMENT = f'{config.model.type}_bs{config.LARGE_BATCH}_epochs{config.EPOCHS}_schd{config.scheduler.type}_lr{config.BASE_LR}_minLR{config.scheduler.LR_MIN}_ls{config.LABEL_SMOOTH}{"_clip" if config.CLIP_PROB else ""}'
 LOG_DIR = BASE_LOG_DIR / EXPERIMENT
 assert not os.path.exists(LOG_DIR), f"Directory {LOG_DIR} already exists!"
 print(str(LOG_DIR))
@@ -46,18 +47,38 @@ def train():
     elif config.opt.type == 'SGD':
         opt = SGD(model.parameters(), lr=config.BASE_LR, momentum=config.opt.MOMENTUM, weight_decay=config.opt.WEIGHT_DECAY)
     else:
-        raise ValueError()
+        raise ValueError(f"Unknown optimizer type {config.opt.type}")
     
     if config.scheduler.type == 'CosineAnnealingLR':
         scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=config.EPOCHS, eta_min=config.scheduler.LR_MIN)
-    else:
+    elif config.scheduler.type == 'LinearLR':
+        scheduler = torch.optim.lr_scheduler.LinearLR(opt, start_factor=1, end_factor=config.scheduler.LR_MIN/config.BASE_LR, total_iters=config.EPOCHS)
+    elif config.scheduler.type is None:
         scheduler = None
+    else:
+        raise ValueError(f"Unknown scheduler type {config.scheduler.type}")
+        
     # iters_per_epoch = len(train_loader)
     # lr_schedule = np.interp(np.arange((config.EPOCHS+1) * iters_per_epoch),
     #                         [0, 5 * iters_per_epoch, config.EPOCHS * iters_per_epoch],
     #                         [0, 1, 0])
     # scheduler = lr_scheduler.LambdaLR(opt, lr_schedule.__getitem__)
-    loss_fn = CrossEntropyLoss(label_smoothing=config.LABEL_SMOOTH)
+    # loss_fn = CrossEntropyLoss(label_smoothing=config.LABEL_SMOOTH)
+    def CELossWithClip():
+        def loss_fn(out, labs):
+            num_classes = out.shape[1]
+            probs = F.softmax(out, dim=1)
+            if config.CLIP_PROB:
+                probs = torch.clamp(probs, config.LABEL_SMOOTH/num_classes, 1 - config.LABEL_SMOOTH)
+            else:
+                probs = torch.clamp(probs, min=1e-8, max=1 - 1e-8)
+            one_hot_targets = F.one_hot(labs, num_classes=num_classes).float()
+            if config.LABEL_SMOOTH:
+                one_hot_targets = (1 - config.LABEL_SMOOTH) * one_hot_targets + config.LABEL_SMOOTH / num_classes
+            loss = -torch.mean(torch.sum(one_hot_targets * torch.log(probs), dim=1))
+            return loss
+        return loss_fn
+    loss_fn = CELossWithClip()
     
     writer = SummaryWriter(log_dir=BASE_LOG_DIR / EXPERIMENT)
 
@@ -77,9 +98,7 @@ def train():
             bs = len(ims)
             global_step += bs
             out = model(ims)
-            if config.CLIP_PROB:
-                out = torch.clamp(out, config.LABEL_SMOOTH/out.shape[1], 1 - config.LABEL_SMOOTH)
-            loss_i = loss_fn(out, labs) * bs / config.LARGE_BATCH
+            loss_i = loss_fn(out, labs) * bs / config.LARGE_BATCH  # use actual bs, not batch_split
             loss += loss_i
             if hasattr(opt, 'update_before_backward'):  # SGDWithStats
                 opt.update_before_backward()
