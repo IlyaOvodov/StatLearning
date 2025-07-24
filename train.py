@@ -41,6 +41,24 @@ elif config.model.type == 'tiny':
     model = model.create_model()
 model=model.cuda()
 
+loss_fn_CE = CrossEntropyLoss()
+def CELossWithClip():
+    def loss_fn(out, labs):
+        eps = 1e-8
+        num_classes = out.shape[1]
+        probs = F.softmax(out, dim=1)
+        if config.CLIP_PROB:
+            probs = torch.clamp(probs, max(eps, config.LABEL_SMOOTH/num_classes), 1 - max(eps, config.LABEL_SMOOTH))
+        else:
+            probs = torch.clamp(probs, min=eps, max=1 - eps)
+        one_hot_targets = F.one_hot(labs, num_classes=num_classes).float()
+        if config.LABEL_SMOOTH:
+            one_hot_targets = (1 - config.LABEL_SMOOTH) * one_hot_targets + config.LABEL_SMOOTH / num_classes
+        loss = -torch.mean(torch.sum(one_hot_targets * torch.log(probs), dim=1))
+        return loss
+    return loss_fn
+loss_fn = CELossWithClip()
+
 def train():
     if config.opt.type == 'SGDWithStatsFixed':
         opt = SGDWithStatsFixed(model.parameters(), lr=config.BASE_LR, momentum=config.opt.MOMENTUM, weight_decay=config.opt.WEIGHT_DECAY, lr_grow=config.opt.LR_GROW, lr_shrink=config.opt.LR_SHRINK, selection_method=config.opt.SELECTION_METHOD)
@@ -63,22 +81,6 @@ def train():
     #                         [0, 5 * iters_per_epoch, config.EPOCHS * iters_per_epoch],
     #                         [0, 1, 0])
     # scheduler = lr_scheduler.LambdaLR(opt, lr_schedule.__getitem__)
-    # loss_fn = CrossEntropyLoss(label_smoothing=config.LABEL_SMOOTH)
-    def CELossWithClip():
-        def loss_fn(out, labs):
-            num_classes = out.shape[1]
-            probs = F.softmax(out, dim=1)
-            if config.CLIP_PROB:
-                probs = torch.clamp(probs, config.LABEL_SMOOTH/num_classes, 1 - config.LABEL_SMOOTH)
-            else:
-                probs = torch.clamp(probs, min=1e-8, max=1 - 1e-8)
-            one_hot_targets = F.one_hot(labs, num_classes=num_classes).float()
-            if config.LABEL_SMOOTH:
-                one_hot_targets = (1 - config.LABEL_SMOOTH) * one_hot_targets + config.LABEL_SMOOTH / num_classes
-            loss = -torch.mean(torch.sum(one_hot_targets * torch.log(probs), dim=1))
-            return loss
-        return loss_fn
-    loss_fn = CELossWithClip()
     
     writer = SummaryWriter(log_dir=BASE_LOG_DIR / EXPERIMENT)
 
@@ -87,7 +89,7 @@ def train():
     iteration_no = 0
     opt.zero_grad(set_to_none=True)  # Initialize gradients at the start of epoch
     batch_split = config.LARGE_BATCH // config.SMALL_BATCH
-    loss = 0
+    loss, loss_CE = 0., 0.,
     # epoch cycle
     for ep in range(config.EPOCHS):
         epoch_start_time = time.time()
@@ -100,6 +102,7 @@ def train():
             out = model(ims)
             loss_i = loss_fn(out, labs) * bs / config.LARGE_BATCH  # use actual bs, not batch_split
             loss += loss_i
+            loss_CE += loss_fn_CE(out, labs) * bs / config.LARGE_BATCH
             if hasattr(opt, 'update_before_backward'):  # SGDWithStats
                 opt.update_before_backward()
             loss_i.backward()
@@ -132,6 +135,7 @@ def train():
 
                 opt.zero_grad(set_to_none=True)
                 writer.add_scalar('train/loss', loss.mean().item(), global_step)
+                writer.add_scalar('train/loss_CE', loss_CE.mean().item(), global_step)
                 writer.add_scalar('train/lr', opt.param_groups[0]['lr'], global_step)
                 writer.add_scalar('train/epoch', ep, global_step)
                 loss = 0
@@ -143,16 +147,16 @@ def train():
             scheduler.step()
         writer.add_scalar('train/epoch_time', epoch_time, global_step)
         if global_step >= prev_eval_step + config.VAL_STEP:
-            eval(writer, global_step, loss_fn)
+            eval(writer, global_step)
             prev_eval_step = global_step
     # end of epoch cycle
     print(f"{EXPERIMENT} finished")
 
-def eval(writer, global_step, loss_fn):
+def eval(writer, global_step):
     model.eval()
     metrix = dict()
     with torch.no_grad():
-        total_correct, total_correct_flip, total_num, loss = 0., 0., 0., 0.,
+        total_correct, total_correct_flip, total_num, loss, loss_CE = 0., 0., 0., 0., 0.,
         pbar = tqdm(test_loader)
         for ims, labs in pbar:
             total_num += ims.shape[0]
@@ -166,7 +170,9 @@ def eval(writer, global_step, loss_fn):
             if config.CLIP_PROB:
                 out = torch.clamp(out, config.LABEL_SMOOTH/out.shape[1], 1 - config.LABEL_SMOOTH)
             loss += loss_fn(out, labs)
-            metrix['loss'] = loss / total_num
+            metrix['loss'] = loss.cpu().item() / total_num
+            loss_CE += loss_fn_CE(out, labs)
+            metrix['loss_CE'] = loss_CE.cpu().item() / total_num
             pbar.set_postfix(metrix)
     model.train()
     for k, v in metrix.items():
