@@ -42,14 +42,20 @@ elif config.model.type == 'tiny':
 model=model.cuda()
 
 loss_fn_CE = CrossEntropyLoss()
-def CELossWithClip():
-    def loss_fn(out, labs):
+class CELossWithClip:
+    def __init__(self):
+        self.reset_epoch()
+    def __call__(self, out, labs):
         eps = 1e-8
         num_classes = out.shape[1]
         probs = F.softmax(out, dim=1)
         if config.CLIP_PROB.ENABLED:
             level = config.CLIP_PROB.LEVEL if config.CLIP_PROB.LEVEL is not None else config.LABEL_SMOOTH
-            probs = torch.clamp(probs, max(eps, level/num_classes), 1 - max(eps, level))
+            levels = (torch.zeros_like(probs) + level/num_classes, torch.ones_like(probs) + 1 - level)
+            skips = ((probs <= levels[0]) | (probs >= levels[1])).min(1).values
+            self.skipped += skips.sum().item()
+            self.total += skips.shape[0] 
+            probs = torch.clamp(probs, levels[0].clamp(min=eps), levels[1].clamp(max=1-eps))
         else:
             probs = torch.clamp(probs, min=eps, max=1 - eps)
         one_hot_targets = F.one_hot(labs, num_classes=num_classes).float()
@@ -57,7 +63,9 @@ def CELossWithClip():
             one_hot_targets = (1 - config.LABEL_SMOOTH) * one_hot_targets + config.LABEL_SMOOTH / num_classes
         loss = -torch.mean(torch.sum(one_hot_targets * torch.log(probs), dim=1))
         return loss
-    return loss_fn
+    def reset_epoch(self):
+        self.skipped = 0
+        self.total = 0
 loss_fn = CELossWithClip()
 
 def train():
@@ -90,20 +98,27 @@ def train():
     iteration_no = 0
     opt.zero_grad(set_to_none=True)  # Initialize gradients at the start of epoch
     batch_split = config.LARGE_BATCH // config.SMALL_BATCH
-    loss, loss_CE = 0., 0.,
     # epoch cycle
     for ep in range(config.EPOCHS):
+        loss_fn.reset_epoch()
+        total_num, loss, loss_CE = 0, 0., 0.,
         epoch_start_time = time.time()
+        fwd_time = 0
+        bwd_time = 0
         pbar = tqdm(train_loader, postfix={'epoch': ep})
         # itrations cycle
         for ims, labs in pbar:
             iteration_no += 1
             bs = len(ims)
+            total_num += bs
             global_step += bs
+            fwd_start_time = time.time()
             out = model(ims)
             loss_i = loss_fn(out, labs) * bs / config.LARGE_BATCH  # use actual bs, not batch_split
+            fwd_time += time.time() - fwd_start_time
             loss += loss_i
             loss_CE += loss_fn_CE(out, labs) * bs / config.LARGE_BATCH
+            bwd_start_time = time.time()
             if hasattr(opt, 'update_before_backward'):  # SGDWithStats
                 opt.update_before_backward()
             loss_i.backward()
@@ -139,15 +154,19 @@ def train():
                 writer.add_scalar('train/loss_CE', loss_CE.mean().item(), global_step)
                 writer.add_scalar('train/lr', opt.param_groups[0]['lr'], global_step)
                 writer.add_scalar('train/epoch', ep, global_step)
-                loss = 0
-                loss_CE = 0
+                if loss_fn.total:
+                    writer.add_scalar('train/skips', loss_fn.skipped/loss_fn.total, global_step)
+                loss, loss_CE = 0., 0.,
                 if scheduler is not None and not config.scheduler.BY_EPOCH:
                     scheduler.step()
+            bwd_time += time.time() - bwd_start_time
         # end of itrations cycle
         epoch_time = time.time() - epoch_start_time
         if scheduler is not None and config.scheduler.BY_EPOCH:
             scheduler.step()
         writer.add_scalar('train/epoch_time', epoch_time, global_step)
+        writer.add_scalar('train/fwd_time', fwd_time, global_step)
+        writer.add_scalar('train/bwd_time', bwd_time, global_step)
         if global_step >= prev_eval_step + config.VAL_STEP:
             eval(writer, global_step)
             prev_eval_step = global_step
@@ -160,7 +179,7 @@ def eval(writer, global_step):
     with torch.no_grad():
         total_correct, total_correct_flip, total_num, loss, loss_CE = 0., 0., 0., 0., 0.,
         pbar = tqdm(test_loader)
-        for ims, labs in pbar:
+        for iter_no, (ims, labs) in enumerate(pbar):
             total_num += ims.shape[0]
             out = model(ims)
             total_correct += out.argmax(1).eq(labs).sum().cpu().item()
@@ -170,9 +189,9 @@ def eval(writer, global_step):
                 total_correct_flip += out_flip.argmax(1).eq(labs).sum().cpu().item()
                 metrix['accuracy with TTA'] = total_correct_flip / total_num * 100
             loss += loss_fn(out, labs)
-            metrix['loss'] = loss.cpu().item() / total_num
+            metrix['loss'] = loss.cpu().item() / (iter_no + 1)
             loss_CE += loss_fn_CE(out, labs)
-            metrix['loss_CE'] = loss_CE.cpu().item() / total_num
+            metrix['loss_CE'] = loss_CE.cpu().item() / (iter_no + 1)
             pbar.set_postfix(metrix)
     model.train()
     for k, v in metrix.items():
