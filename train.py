@@ -21,8 +21,8 @@ config.init(default_config_path='configs/default.yaml')
 
 BASE_LOG_DIR = Path(__file__).parent / config.BASE_LOG_DIR
 # EXPERIMENT = f'fix_opt/{config.opt.SELECTION_METHOD}prm_largebs{config.LARGE_BATCH}_smallbs{config.SMALL_BATCH}_lr{config.BASE_LR}_grow{config.opt.LR_GROW}_shrink{config.opt.LR_SHRINK}_m{config.opt.MOMENTUM}'
-# EXPERIMENT = f'{config.model.type}_{config.opt.type}_bs{config.LARGE_BATCH}_sbs{config.SMALL_BATCH}_lr{config.BASE_LR}_m{config.opt.MOMENTUM}_ls{config.LABEL_SMOOTH}{"_clip" if config.CLIP_PROB else ""}'
-EXPERIMENT = f'{config.model.type}_bs{config.LARGE_BATCH}_epochs{config.EPOCHS}_schd{config.scheduler.type}_lr{config.BASE_LR}_minLR{config.scheduler.LR_MIN}_ls{config.LABEL_SMOOTH}{"_clip" if config.CLIP_PROB else ""}'
+# EXPERIMENT = f'{config.model.type}_{config.opt.type}_bs{config.LARGE_BATCH}_sbs{config.SMALL_BATCH}_lr{config.BASE_LR}_m{config.opt.MOMENTUM}_ls{config.LABEL_SMOOTH}{"_clip" if config.CLIP_PROB.ENABLED else ""}'
+EXPERIMENT = f'{config.model.type}_bs{config.LARGE_BATCH}_epochs{config.EPOCHS}_schd{config.scheduler.type}_lr{config.BASE_LR}_minLR{config.scheduler.LR_MIN}_ls{config.LABEL_SMOOTH}{"_clip"+(str(config.CLIP_PROB.LEVEL) if config.CLIP_PROB.LEVEL is not None else "") if config.CLIP_PROB.ENABLED else ""}'
 LOG_DIR = BASE_LOG_DIR / EXPERIMENT
 assert not os.path.exists(LOG_DIR), f"Directory {LOG_DIR} already exists!"
 print(str(LOG_DIR))
@@ -47,8 +47,9 @@ def CELossWithClip():
         eps = 1e-8
         num_classes = out.shape[1]
         probs = F.softmax(out, dim=1)
-        if config.CLIP_PROB:
-            probs = torch.clamp(probs, max(eps, config.LABEL_SMOOTH/num_classes), 1 - max(eps, config.LABEL_SMOOTH))
+        if config.CLIP_PROB.ENABLED:
+            level = config.CLIP_PROB.LEVEL if config.CLIP_PROB.LEVEL is not None else config.LABEL_SMOOTH
+            probs = torch.clamp(probs, max(eps, level/num_classes), 1 - max(eps, level))
         else:
             probs = torch.clamp(probs, min=eps, max=1 - eps)
         one_hot_targets = F.one_hot(labs, num_classes=num_classes).float()
@@ -139,6 +140,7 @@ def train():
                 writer.add_scalar('train/lr', opt.param_groups[0]['lr'], global_step)
                 writer.add_scalar('train/epoch', ep, global_step)
                 loss = 0
+                loss_CE = 0
                 if scheduler is not None and not config.scheduler.BY_EPOCH:
                     scheduler.step()
         # end of itrations cycle
@@ -167,8 +169,6 @@ def eval(writer, global_step):
                 out_flip = (out + model(torch.fliplr(ims))) / 2. # Test-time augmentation
                 total_correct_flip += out_flip.argmax(1).eq(labs).sum().cpu().item()
                 metrix['accuracy with TTA'] = total_correct_flip / total_num * 100
-            if config.CLIP_PROB:
-                out = torch.clamp(out, config.LABEL_SMOOTH/out.shape[1], 1 - config.LABEL_SMOOTH)
             loss += loss_fn(out, labs)
             metrix['loss'] = loss.cpu().item() / total_num
             loss_CE += loss_fn_CE(out, labs)

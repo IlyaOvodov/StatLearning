@@ -25,5 +25,7 @@ scheduler:
   LR_MIN: 0.001
   BY_EPOCH: True
 
-LABEL_SMOOTH: 0.2
-CLIP_PROB: false
+LABEL_SMOOTH: 0 #.2 # .01
+CLIP_PROB:
+  ENABLED: true
+  LEVEL: 0.2 # If not None, clip loss between CLIP_LEVEL and 1-CLIP_LEVEL/num_classes
