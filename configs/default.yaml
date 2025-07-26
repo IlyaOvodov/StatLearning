@@ -27,5 +27,10 @@ scheduler:
 
 LABEL_SMOOTH: 0 #.2 # .01
 CLIP_PROB:
-  ENABLED: true
+  ENABLED: false
   LEVEL: 0.2 # If not None, clip loss between CLIP_LEVEL and 1-CLIP_LEVEL/num_classes
+
+CLIP_LOSS:
+  ENABLED: true
+  LOW_THRESHOLD: 0.75
+  HIGH_THRESHOLD: 1.0

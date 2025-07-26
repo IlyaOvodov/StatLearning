@@ -22,7 +22,8 @@ config.init(default_config_path='configs/default.yaml')
 BASE_LOG_DIR = Path(__file__).parent / config.BASE_LOG_DIR
 # EXPERIMENT = f'fix_opt/{config.opt.SELECTION_METHOD}prm_largebs{config.LARGE_BATCH}_smallbs{config.SMALL_BATCH}_lr{config.BASE_LR}_grow{config.opt.LR_GROW}_shrink{config.opt.LR_SHRINK}_m{config.opt.MOMENTUM}'
 # EXPERIMENT = f'{config.model.type}_{config.opt.type}_bs{config.LARGE_BATCH}_sbs{config.SMALL_BATCH}_lr{config.BASE_LR}_m{config.opt.MOMENTUM}_ls{config.LABEL_SMOOTH}{"_clip" if config.CLIP_PROB.ENABLED else ""}'
-EXPERIMENT = f'{config.model.type}_bs{config.LARGE_BATCH}_epochs{config.EPOCHS}_schd{config.scheduler.type}_lr{config.BASE_LR}_minLR{config.scheduler.LR_MIN}_ls{config.LABEL_SMOOTH}{"_clip"+(str(config.CLIP_PROB.LEVEL) if config.CLIP_PROB.LEVEL is not None else "") if config.CLIP_PROB.ENABLED else ""}'
+EXPERIMENT = f'{config.model.type}_bs{config.LARGE_BATCH}_epochs{config.EPOCHS}_schd{config.scheduler.type}_lr{config.BASE_LR}_minLR{config.scheduler.LR_MIN}_ls{config.LABEL_SMOOTH}{"_clip"+(str(config.CLIP_PROB.LEVEL) if config.CLIP_PROB.LEVEL is not None else "") if config.CLIP_PROB.ENABLED else ""}' \
+    f'{("_loss"+str(config.CLIP_LOSS.LOW_THRESHOLD)+"-"+str(config.CLIP_LOSS.HIGH_THRESHOLD)) if config.CLIP_LOSS.ENABLED else ""}'
 LOG_DIR = BASE_LOG_DIR / EXPERIMENT
 assert not os.path.exists(LOG_DIR), f"Directory {LOG_DIR} already exists!"
 print(str(LOG_DIR))
@@ -61,7 +62,13 @@ class CELossWithClip:
         one_hot_targets = F.one_hot(labs, num_classes=num_classes).float()
         if config.LABEL_SMOOTH:
             one_hot_targets = (1 - config.LABEL_SMOOTH) * one_hot_targets + config.LABEL_SMOOTH / num_classes
-        loss = -torch.mean(torch.sum(one_hot_targets * torch.log(probs), dim=1))
+        loss = -torch.sum(one_hot_targets * torch.log(probs), dim=1)
+        if config.CLIP_LOSS.ENABLED:
+            loss, loss_indices = loss.sort(dim=0)
+            low_idx = int(loss.shape[0] * config.CLIP_LOSS.LOW_THRESHOLD)
+            high_idx = int(loss.shape[0] * config.CLIP_LOSS.HIGH_THRESHOLD)
+            loss = loss[low_idx:high_idx]
+        loss = torch.mean(loss)
         return loss
     def reset_epoch(self):
         self.skipped = 0
