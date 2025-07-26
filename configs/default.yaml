@@ -32,5 +32,6 @@ CLIP_PROB:
 
 CLIP_LOSS:
   ENABLED: true
-  LOW_THRESHOLD: 0.75
+  LOW_THRESHOLD: 0.5
   HIGH_THRESHOLD: 1.0
+  START_EPOCH: 10  # cout from 0, so the same as skip epochs
