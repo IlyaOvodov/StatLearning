@@ -21,7 +21,7 @@ opt:
   # LR_SHRINK: 0.01
 
 scheduler:
-  type: LinearLR # <None> CosineAnnealingLR LinearLR
+  type: CosineAnnealingLR # <None> CosineAnnealingLR LinearLR
   LR_MIN: 0.001
   BY_EPOCH: True
 

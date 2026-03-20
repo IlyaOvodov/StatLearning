@@ -13,7 +13,7 @@ from tqdm import tqdm
 
 from utils.config_processor import config
 import model
-from resnet_k_upd import ResNet18 as ResNet18_kuangliu
+from resnet_k import ResNet18 as ResNet18_kuangliu
 import loaders
 from sgd_with_stats import SGDWithStats, SGDWithStatsFixed
 
