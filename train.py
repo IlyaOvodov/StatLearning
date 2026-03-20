@@ -6,15 +6,13 @@ from torch.nn import CrossEntropyLoss
 from torch.optim import SGD, lr_scheduler
 import torch.nn.functional as F
 from torch.utils.tensorboard import SummaryWriter
-import torchvision.models as tvmodels
 import time
 
 from tqdm import tqdm
 
 from utils.config_processor import config
-import model
-from resnet_k import ResNet18 as ResNet18_kuangliu
-import loaders
+import models.model as model    
+import utils.loaders as loaders
 from sgd_with_stats import SGDWithStats, SGDWithStatsFixed
 
 config.init(default_config_path='configs/default.yaml')
@@ -24,24 +22,19 @@ BASE_LOG_DIR = Path(__file__).parent / config.BASE_LOG_DIR
 # EXPERIMENT = f'{config.model.type}_{config.opt.type}_bs{config.LARGE_BATCH}_sbs{config.SMALL_BATCH}_lr{config.BASE_LR}_m{config.opt.MOMENTUM}_ls{config.LABEL_SMOOTH}{"_clip" if config.CLIP_PROB.ENABLED else ""}'
 # EXPERIMENT = f'{config.model.type}_bs{config.LARGE_BATCH}_epochs{config.EPOCHS}_schd{config.scheduler.type}_lr{config.BASE_LR}_minLR{config.scheduler.LR_MIN}_ls{config.LABEL_SMOOTH}{"_clip"+(str(config.CLIP_PROB.LEVEL) if config.CLIP_PROB.LEVEL is not None else "") if config.CLIP_PROB.ENABLED else ""}' \
 #     f'{("_loss"+str(config.CLIP_LOSS.LOW_THRESHOLD)+"-"+str(config.CLIP_LOSS.HIGH_THRESHOLD) + (("e"+str(config.CLIP_LOSS.START_EPOCH)) if config.CLIP_LOSS.START_EPOCH else "")) if config.CLIP_LOSS.ENABLED else ""}'
-EXPERIMENT = f'train-ResNet18_kuangliu-schd{str(config.scheduler.type)}-ep{config.EPOCHS}'
+EXPERIMENT = f'{config.model.type}_bs{config.LARGE_BATCH}_epochs{config.EPOCHS}_schd{config.scheduler.type}_lr{config.BASE_LR}_minLR{config.scheduler.LR_MIN}'
+
 LOG_DIR = BASE_LOG_DIR / EXPERIMENT
-assert not os.path.exists(LOG_DIR), f"Directory {LOG_DIR} already exists!"
+LOG_DIR.mkdir(parents=True, exist_ok=False)
 print(str(LOG_DIR))
+with open(f'{LOG_DIR}/config.yaml', 'w') as f:
+    f.write(config.dump())
 
 assert config.LARGE_BATCH % config.SMALL_BATCH == 0, "config.LARGE_BATCH size must be divisible by config.SMALL_BATCH size"
 
 train_loader, test_loader = loaders.create_cifar_loaders(config.SMALL_BATCH, use_amp=False)
 
-if config.model.type == 'ResNet18':
-    model = tvmodels.resnet18()
-elif config.model.type == 'ResNet34':
-    model = tvmodels.resnet34()
-elif config.model.type == 'ResNet18_kuangliu':
-    model = ResNet18_kuangliu() # https://github.com/kuangliu/pytorch-cifar
-elif config.model.type == 'tiny':
-    model = model.create_model()
-model=model.cuda()
+model = model.create_model(config)
 
 loss_fn_CE = CrossEntropyLoss()
 class CELossWithClip:

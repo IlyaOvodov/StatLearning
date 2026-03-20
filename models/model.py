@@ -1,4 +1,6 @@
 import torch
+import torchvision.models as tvmodels
+from .resnet_k import ResNet18 as ResNet18_kuangliu
 
 class Mul(torch.nn.Module):
     def __init__(self, weight):
@@ -24,7 +26,7 @@ def conv_bn(channels_in, channels_out, kernel_size=3, stride=1, padding=1, group
             torch.nn.ReLU(inplace=True)
     )
 
-def create_model(NUM_CLASSES = 10, device='cuda'):
+def create_tiny_model(NUM_CLASSES = 10, device='cuda'):
     NUM_CLASSES = 10
     model = torch.nn.Sequential(
         conv_bn(3, 64, kernel_size=3, stride=1, padding=1),
@@ -40,4 +42,17 @@ def create_model(NUM_CLASSES = 10, device='cuda'):
         Mul(0.2)
     )
     model = model.to(memory_format=torch.channels_last, device=device)
+    return model
+
+
+def create_model(config, NUM_CLASSES = 10, device='cuda'):
+    if config.model.type == 'tiny':
+        model = create_tiny_model(NUM_CLASSES, device)
+    elif config.model.type == 'ResNet18':
+        model = tvmodels.resnet18()
+    elif config.model.type == 'ResNet34':
+        model = tvmodels.resnet34()
+    elif config.model.type == 'ResNet18_kuangliu':
+        model = ResNet18_kuangliu() # https://github.com/kuangliu/pytorch-cifar
+    model=model.to(device=device)
     return model
