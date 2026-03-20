@@ -14,6 +14,19 @@ import time
 
 from resnet_k import *
 
+from utils.config_processor import config
+from torch.utils.tensorboard import SummaryWriter
+from pathlib import Path
+
+EPOCHS=100
+config.init(default_config_path='configs/default.yaml')
+BASE_LOG_DIR = Path(__file__).parent / config.BASE_LOG_DIR
+EXPERIMENT = f'train_resnet_k-Resnet18-const'
+LOG_DIR = BASE_LOG_DIR / EXPERIMENT
+assert not os.path.exists(LOG_DIR), f"Directory {LOG_DIR} already exists!"
+print(str(LOG_DIR))
+writer = SummaryWriter(log_dir=LOG_DIR)
+
 parser = argparse.ArgumentParser(description='PyTorch CIFAR10 Training')
 parser.add_argument('--lr', default=0.1, type=float, help='learning rate')
 parser.add_argument('--resume', '-r', action='store_true',
@@ -85,7 +98,9 @@ if args.resume:
 criterion = nn.CrossEntropyLoss()
 optimizer = optim.SGD(net.parameters(), lr=args.lr,
                       momentum=0.9, weight_decay=5e-4)
-scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=200)
+scheduler = None
+# scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=EPOCHS)
+# scheduler = torch.optim.lr_scheduler.LinearLR(optimizer, start_factor=1, end_factor=0.001, total_iters=EPOCHS)
 
 
 # Training
@@ -110,8 +125,15 @@ def train(epoch):
         correct += predicted.eq(targets).sum().item()
 
     epoch_time = time.time() - epoch_start_time
+    global_step = epoch * len(trainloader) * 128
     print(batch_idx, len(trainloader), 'Loss: %.3f | Acc: %.3f%% (%d/%d)'
                      % (train_loss/(batch_idx+1), 100.*correct/total, correct, total), 'ep.time', epoch_time)
+    writer.add_scalar('train/epoch_time', epoch_time, global_step)
+    
+    writer.add_scalar('train/loss', train_loss/(batch_idx+1), global_step)
+    writer.add_scalar('train/accuracy', correct/total*100, global_step)
+    writer.add_scalar('train/lr', optimizer.param_groups[0]['lr'], global_step)
+    writer.add_scalar('train/epoch', epoch, global_step)
 
 
 def test(epoch):
@@ -134,6 +156,10 @@ def test(epoch):
         print(batch_idx, len(testloader), 'Loss: %.3f | Acc: %.3f%% (%d/%d)'
                          % (test_loss/(batch_idx+1), 100.*correct/total, correct, total))
 
+    global_step = epoch * len(trainloader) * 128
+    writer.add_scalar('test/loss', test_loss/(batch_idx+1), global_step)
+    writer.add_scalar('test/accuracy', correct/total*100, global_step)
+
     # Save checkpoint.
     acc = 100.*correct/total
     if acc > best_acc:
@@ -149,7 +175,8 @@ def test(epoch):
         best_acc = acc
 
 
-for epoch in range(start_epoch, start_epoch+200):
+for epoch in range(start_epoch, start_epoch+EPOCHS):
     train(epoch)
     test(epoch)
-    scheduler.step()
+    if scheduler is not None:
+        scheduler.step()
