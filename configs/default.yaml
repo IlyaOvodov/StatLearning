@@ -1,6 +1,7 @@
 # DEBUG: True
 
 BASE_LOG_DIR: results/26-03-20
+EXPERIMENT_SUFFIX:
 
 LARGE_BATCH: 128  # batch for fwd-bkwd pass
 SMALL_BATCH: 128  # batch for one forward pass
@@ -31,7 +32,7 @@ CLIP_PROB:
   LEVEL: 0.2 # If not None, clip loss between CLIP_LEVEL and 1-CLIP_LEVEL/num_classes
 
 CLIP_LOSS:
-  ENABLED: true
+  ENABLED: false
   LOW_THRESHOLD: 0.5
   HIGH_THRESHOLD: 1.0
   START_EPOCH: 10  # cout from 0, so the same as skip epochs

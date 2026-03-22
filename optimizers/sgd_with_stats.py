@@ -7,11 +7,39 @@ from torch.optim.optimizer import _use_grad_for_differentiable
 def zer_state_tensor(state: Dict, name: str):
     if name in state:
         state[name].zero_()
-
-class SGDWithStats(SGD):
-    def __init__(self, *args, max_num_updates = 1000, **kwargs):
+        
+class SGDProxy(SGD):
+    def __init__(self, config, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.config = config
+
+    def update_before_backward(self):
+        pass
+        
+    def update_after_backward(self):
+        pass
+        
+    def get_metrics(self):
+        metrics = {}
+        metrics['lr'] = self.param_groups[0]['lr']
+        return metrics
+
+class SGDWithStats(SGDProxy):
+    def __init__(self, config,*args, max_num_updates = 1000, **kwargs):
+        super().__init__(config, *args, **kwargs)
         self.max_num_updates = max_num_updates
+
+    def get_metrics(self):
+        metrics = super().get_metrics()
+        if self.config.LARGE_BATCH != self.config.SMALL_BATCH:
+            all_t_values = torch.cat([self.t_value(p).reshape(-1) for state in self.state.values() for p in state["params"]])
+            metrics['t_value_max'] = all_t_values.max().item()
+            metrics['t_value'] = all_t_values.mean().item()
+            metrics['t_value_med'] = torch.quantile(all_t_values, 0.5).item()
+            metrics['t_value_max90'] = torch.quantile(all_t_values, 0.9).item()
+            # for name, p in model.named_parameters():
+            #     print(f"{name}: {opt.t_value(p).mean().item()}")
+        return metrics
 
     def step(self, *args, **kwargs):
         super().step(*args, **kwargs)
@@ -66,8 +94,8 @@ class SGDWithStats(SGD):
         return t_value
         
 class SGDWithStatsFixed(SGDWithStats):
-    def __init__(self, *args, lr_grow = 0.01, lr_shrink = 0.02, min_step=0.000001, max_step=0.1, selection_method = 'meangrad', **kwargs):
-        super().__init__(*args, **kwargs)
+    def __init__(self, config, *args, lr_grow = 0.01, lr_shrink = 0.02, min_step=0.000001, max_step=0.1, selection_method = 'meangrad', **kwargs):
+        super().__init__(config=config, *args, **kwargs)
         self.lr_grow = lr_grow
         self.lr_shrink = lr_shrink
         self.max_step = max_step
@@ -76,6 +104,15 @@ class SGDWithStatsFixed(SGDWithStats):
         self.t_thresholds = torch.tensor([0, 0, 6.313, 2.919, 2.353, 2.131, 2.01, 1.94])
         self.t_thresholds = 2.35 #GVNC. Массив падает с ошибкой КУДА
         self.n_thresholds = 5
+        
+    def get_metrics(self):
+        metrics = super().get_metrics()
+        ls_scles = [state["lr_scale"].reshape(-1) for state in self.state.values()]
+        ls_scles = torch.cat(ls_scles)
+        metrics['ls_scale_mean'], ls_scles.mean().item()
+        metrics['ls_scale_max'] = ls_scles.max().item()
+        metrics['ls_scale_min'] = ls_scles.min().item()
+        return metrics
         
     @_use_grad_for_differentiable
     def step(self):
