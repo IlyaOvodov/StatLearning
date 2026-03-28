@@ -39,7 +39,7 @@ def create_cifar_loaders(batch_size, num_workers=6, device='cuda', use_amp=True)
         # Create loaders
         loaders[name] = Loader(f'./data/cifar_{name}.beton',
                                 batch_size=batch_size,
-                                num_workers=6,
+                                num_workers=num_workers,
                                 order=OrderOption.RANDOM,
                                 drop_last=(name == 'train'),
                                 pipelines={'image': image_pipeline,

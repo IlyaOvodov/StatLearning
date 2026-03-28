@@ -22,9 +22,13 @@ opt:
   # LR_SHRINK: 0.01
 
 scheduler:
-  type: CosineAnnealingLR # <None> CosineAnnealingLR LinearLR
+  type: CosineAnnealingLR # <None> CosineAnnealingLR LinearLR FindLr
   LR_MIN: 0.001
   BY_EPOCH: True
+  FindLr:
+    LR_LOW_BOUND: 1.0e-7
+    LR_UPPER_BOUND: 1.0
+    NUM_STEPS: 100
 
 LABEL_SMOOTH: 0 #.2 # .01
 CLIP_PROB:

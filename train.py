@@ -33,10 +33,13 @@ with open(f'{LOG_DIR}/config.yaml', 'w') as f:
 assert config.LARGE_BATCH % config.SMALL_BATCH == 0, "config.LARGE_BATCH size must be divisible by config.SMALL_BATCH size"
 
 train_loader, test_loader = create_cifar_loaders(config.SMALL_BATCH, use_amp=False)
+finder_loader = create_cifar_loaders(config.SMALL_BATCH, use_amp=False, num_workers=0)[0] if config.scheduler.type == 'FindLr' else None
 model = create_model(config)
 loss_fn = create_loss(config)
 opt = create_optimizer(config, model)
-scheduler = create_scheduler(config, opt)
+scheduler = create_scheduler(config, opt, model=model, loss_fn=loss_fn,
+                             train_loader=finder_loader if config.scheduler.type == 'FindLr' else train_loader,
+                             log_dir=LOG_DIR if config.scheduler.type == 'FindLr' else None)
 metrics = MetricLogger()
 writer = SummaryWriter(log_dir=BASE_LOG_DIR / EXPERIMENT)
 
@@ -44,6 +47,8 @@ def train():
     global_step = 0
     prev_eval_step = 0
     iteration_no = 0
+    if scheduler is not None and config.scheduler.type == 'FindLr':
+        scheduler.step()  # one-shot: find optimal LR, restore state, set LR
     opt.zero_grad(set_to_none=True)  # Initialize gradients at the start of epoch
     batch_split = config.LARGE_BATCH // config.SMALL_BATCH
     # epoch cycle
