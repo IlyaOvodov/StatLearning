@@ -2,16 +2,17 @@
 
 BASE_LOG_DIR: results/26-03-20
 EXPERIMENT_SUFFIX:
+OVERWRITE_LOG_DIR: false
 
 LARGE_BATCH: 128  # batch for fwd-bkwd pass
 SMALL_BATCH: 128  # batch for one forward pass
 BASE_LR: 0.1
-EPOCHS: 50
+EPOCHS: 50 # 100
 VAL_STEP: 25000
-USE_TTA_EVAL: False
+USE_TTA_EVAL: false
 
 model:
-  type: ResNet18_kuangliu
+  type: tiny # ResNet18_kuangliu
 
 opt:
   type: SGD
@@ -24,7 +25,7 @@ opt:
 scheduler:
   type: CosineAnnealingLR # <None> CosineAnnealingLR LinearLR
   LR_MIN: 0.001
-  BY_EPOCH: True
+  BY_EPOCH: true
 
 LABEL_SMOOTH: 0 #.2 # .01
 CLIP_PROB:

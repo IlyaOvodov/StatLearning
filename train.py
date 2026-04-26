@@ -25,7 +25,7 @@ BASE_LOG_DIR = Path(__file__).parent / config.BASE_LOG_DIR
 EXPERIMENT = f'{config.model.type}_bs{config.LARGE_BATCH}_epochs{config.EPOCHS}_schd{config.scheduler.type}_lr{config.BASE_LR}_minLR{config.scheduler.LR_MIN}_{config.EXPERIMENT_SUFFIX or ""}'
 
 LOG_DIR = BASE_LOG_DIR / EXPERIMENT
-LOG_DIR.mkdir(parents=True, exist_ok=False)
+LOG_DIR.mkdir(parents=True, exist_ok=config.OVERWRITE_LOG_DIR)
 print(str(LOG_DIR))
 with open(f'{LOG_DIR}/config.yaml', 'w') as f:
     f.write(config.dump())
