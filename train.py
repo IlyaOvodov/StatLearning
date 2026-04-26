@@ -6,6 +6,8 @@ from torch.utils.tensorboard import SummaryWriter
 import time
 
 from tqdm import tqdm
+from backpack import extend, backpack
+from backpack.extensions import Variance
 
 from utils.config_processor import config
 from models.model import create_model
@@ -14,7 +16,7 @@ from losses.losses import create_loss
 from optimizers.optimizers import create_optimizer
 from schedulers.schedulers import create_scheduler
 from utils.metrics import MetricLogger
-
+# from analyzer import Analyzer
 config.init(default_config_path='configs/default.yaml')
 
 BASE_LOG_DIR = Path(__file__).parent / config.BASE_LOG_DIR
@@ -25,7 +27,7 @@ BASE_LOG_DIR = Path(__file__).parent / config.BASE_LOG_DIR
 EXPERIMENT = f'{config.model.type}_bs{config.LARGE_BATCH}_epochs{config.EPOCHS}_schd{config.scheduler.type}_lr{config.BASE_LR}_minLR{config.scheduler.LR_MIN}_{config.EXPERIMENT_SUFFIX or ""}'
 
 LOG_DIR = BASE_LOG_DIR / EXPERIMENT
-LOG_DIR.mkdir(parents=True, exist_ok=False)
+LOG_DIR.mkdir(parents=True, exist_ok=config.OVERWRITE_LOG_DIR)
 print(str(LOG_DIR))
 with open(f'{LOG_DIR}/config.yaml', 'w') as f:
     f.write(config.dump())
@@ -35,6 +37,7 @@ assert config.LARGE_BATCH % config.SMALL_BATCH == 0, "config.LARGE_BATCH size mu
 train_loader, test_loader = create_cifar_loaders(config.SMALL_BATCH, use_amp=False)
 finder_loader = create_cifar_loaders(config.SMALL_BATCH, use_amp=False, num_workers=0)[0] if config.scheduler.type == 'FindLr' else None
 model = create_model(config)
+# analyzer = Analyzer(config, model)
 loss_fn = create_loss(config)
 opt = create_optimizer(config, model)
 scheduler = create_scheduler(config, opt, model=model, loss_fn=loss_fn,
@@ -42,6 +45,9 @@ scheduler = create_scheduler(config, opt, model=model, loss_fn=loss_fn,
                              log_dir=LOG_DIR if config.scheduler.type == 'FindLr' else None)
 metrics = MetricLogger()
 writer = SummaryWriter(log_dir=BASE_LOG_DIR / EXPERIMENT)
+
+model = extend(model)
+loss_fn = extend(loss_fn)
 
 def train():
     global_step = 0
@@ -74,7 +80,14 @@ def train():
 
             bwd_start_time = time.time()
             opt.update_before_backward()
-            loss_i.backward()
+            with backpack(Variance()):
+                loss_i.backward()
+            
+            # for name, p in model.named_parameters():
+            #     if not p.requires_grad:
+            #         continue
+            #     break
+
             opt.update_after_backward()
 
             if iteration_no % batch_split == 0:

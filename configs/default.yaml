@@ -1,7 +1,8 @@
 # DEBUG: True
 
-BASE_LOG_DIR: results/26-03-20
-EXPERIMENT_SUFFIX:
+BASE_LOG_DIR: results/26-04-11test
+EXPERIMENT_SUFFIX: bp
+OVERWRITE_LOG_DIR: True
 
 LARGE_BATCH: 128  # batch for fwd-bkwd pass
 SMALL_BATCH: 128  # batch for one forward pass

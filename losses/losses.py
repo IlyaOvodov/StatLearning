@@ -2,7 +2,7 @@ import torch
 from torch.nn import CrossEntropyLoss
 import torch.nn.functional as F
 
-class CELossWithClip:
+class CELossWithClip(CrossEntropyLoss):
     """
     Вариант CE loss с clip с вариантами:
     - LABEL_SMOOTH (обычный)
@@ -12,10 +12,10 @@ class CELossWithClip:
     При CLIP_PROB, CLIP_LOSS  совпадает с CE Loss
     """
     def __init__(self, config):
+        super().__init__()
         self.epoch = -1  # epoch number 0..
         self.config = config
         self.metrics = {}
-        self.loss_CE_fn = CrossEntropyLoss()
         self.reset_epoch()
 
     def get_metrics(self):
@@ -48,7 +48,7 @@ class CELossWithClip:
         self.metrics['loss'] = loss.item()
         if config.CLIP_PROB.ENABLED:
             self.metrics['skips'] = self.skipped/self.total if self.total > 0 else 0.0
-        self.metrics['loss_CE'] = self.loss_CE_fn(out, labs).mean().item()
+        self.metrics['loss_CE'] = super().__call__(out, labs).mean().item()
         
         return loss
 
@@ -60,5 +60,7 @@ class CELossWithClip:
 def create_loss(config):
     # if config.CLIP_PROB.ENABLED:
     return CELossWithClip(config)
+    # elif config.CLIP_LOSS.ENABLED:
+    #     return CELossWithClip(config)
     # else:
     #     return CrossEntropyLoss()
